@@ -193,18 +193,23 @@ let gitState = null;
 let importedVSCodeExtensions = [];
 let importedSnippets = { java: [], cpp: [], python: [] };
 let snippetProviders = [];
+let workspaceRoot = null;
+const expandedProjectDirs = new Set();
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 require(['vs/editor/editor.main'], async function () {
   settings = await window.electronAPI.getSettings();
   hydrateSnippetImportsFromStorage();
+  workspaceRoot = settings.workspaceRoot || null;
   applyTheme(settings.theme);
   initEditor();
   registerSnippetProviders();
   loadInitialContent();
   wireUI();
+  initSubmissionPanel();
   updateBundleStatus();
   refreshGitStatus();
+  refreshProjectTree();
   loadRecentFiles();
   loadTestCasesFromStorage();
   renderImportedExtensions();
@@ -234,10 +239,20 @@ function initEditor() {
     formatOnType: true,
     suggestOnTriggerCharacters: true,
     quickSuggestions: { other: true, comments: false, strings: false },
+    padding: { top: 12, bottom: 12 }, // Add some breathing room
   });
 
-  // Track dirty state
-  editor.onDidChangeModelContent(() => { isDirty = true; updateTitle(); });
+  // Track dirty state and content changes
+  editor.onDidChangeModelContent(() => {
+    isDirty = true;
+    updateTitle();
+    toggleWelcomeScreen(); // Let function decide based on content
+  });
+
+  // Track cursor position for status bar
+  editor.onDidChangeCursorPosition((e) => {
+    updateStatusBarCursor(e.position);
+  });
 
   // Cmd+Enter to run
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => runCode());
@@ -246,6 +261,25 @@ function initEditor() {
 
   // Auto-resize on window resize
   window.addEventListener('resize', () => editor.layout());
+}
+
+function updateStatusBarCursor(position) {
+  const el = document.getElementById('sb-cursor');
+  if (el) el.textContent = `Ln ${position.lineNumber}, Col ${position.column}`;
+}
+
+function toggleWelcomeScreen(show) {
+  const el = document.getElementById('welcome-screen');
+  const hasContent = editor.getValue().trim().length > 0;
+  
+  // If explicitly showing, or if undefined and editor is empty
+  const shouldShow = show !== undefined ? show : (!hasContent && !currentFilePath);
+  
+  if (shouldShow) {
+    el.classList.remove('hidden');
+  } else {
+    el.classList.add('hidden');
+  }
 }
 
 function langToMonaco(lang) {
@@ -261,13 +295,26 @@ function setEditorLanguage(lang) {
 // ─── Initial Content ──────────────────────────────────────────────────────────
 function loadInitialContent() {
   const lang = settings.language || 'java';
+  updateLangBadge(lang);
+  document.getElementById('lang-select').value = lang;
+  
+  // If no previous file was loaded (or explicitly asking for welcome), show it?
+  // But our "default" is a template. Let's start with the template to be helpful.
+  // The user can clear it to see the welcome screen if they want.
+  
   const templateKey = lang === 'java' ? 'java-usaco' : lang === 'cpp' ? 'cpp-usaco' : null;
   if (templateKey) {
     editor.setValue(TEMPLATES[templateKey]);
+    // It's a template, so technically not dirty yet, but it has content.
+    // Let's treat it as "clean" new file.
+    isDirty = false;
+    currentFilePath = null;
+    updateTitle();
+    toggleWelcomeScreen(false); // Has content
+  } else {
+    // Empty
+    toggleWelcomeScreen(true);
   }
-  updateLangBadge(lang);
-  document.getElementById('lang-select').value = lang;
-  updateTitle();
 }
 
 // ─── UI Wiring ────────────────────────────────────────────────────────────────
@@ -284,6 +331,10 @@ function wireUI() {
   document.getElementById('btn-save').addEventListener('click', saveFile);
   document.getElementById('btn-format').addEventListener('click', formatCode);
 
+  // Welcome Screen
+  document.getElementById('btn-welcome-new').addEventListener('click', newFile);
+  document.getElementById('btn-welcome-open').addEventListener('click', openFile);
+
   // Language selector
   document.getElementById('lang-select').addEventListener('change', (e) => {
     const lang = e.target.value;
@@ -291,6 +342,7 @@ function wireUI() {
     window.electronAPI.setSetting('language', lang);
     setEditorLanguage(lang);
     updateLangBadge(lang);
+    document.getElementById('sb-lang').textContent = { java: 'Java', cpp: 'C++', python: 'Python' }[lang] || lang;
   });
 
   // Template buttons
@@ -338,9 +390,19 @@ function wireUI() {
   // Test cases
   document.getElementById('btn-add-test').addEventListener('click', () => addTestCase());
   document.getElementById('btn-paste-test').addEventListener('click', pasteTestCase);
+  document.getElementById('btn-fetch-problem').addEventListener('click', fetchProblemSamplesIntoTests);
   document.getElementById('btn-run-all-tests').addEventListener('click', runAllTests);
+  document.getElementById('problem-url-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') fetchProblemSamplesIntoTests();
+  });
 
   // Workspace / bundle / extension controls
+  const openProjectBtn = document.getElementById('btn-open-project-folder');
+  if (openProjectBtn) openProjectBtn.addEventListener('click', chooseProjectFolder);
+
+  const refreshProjectBtn = document.getElementById('btn-refresh-project');
+  if (refreshProjectBtn) refreshProjectBtn.addEventListener('click', refreshProjectTree);
+
   const refreshBundlesBtn = document.getElementById('btn-refresh-bundles');
   if (refreshBundlesBtn) refreshBundlesBtn.addEventListener('click', updateBundleStatus);
 
@@ -357,6 +419,17 @@ function wireUI() {
 
   const importExtBtn = document.getElementById('btn-import-vscode-ext');
   if (importExtBtn) importExtBtn.addEventListener('click', importVSCodeExtension);
+  const importVsixBtn = document.getElementById('btn-import-vscode-vsix');
+  if (importVsixBtn) importVsixBtn.addEventListener('click', importVSIXExtension);
+
+  // Submission helpers
+  document.getElementById('submit-platform').addEventListener('change', saveSubmissionSettingsFromUI);
+  document.getElementById('submit-cf-contest').addEventListener('input', saveSubmissionSettingsFromUI);
+  document.getElementById('submit-cf-problem').addEventListener('input', saveSubmissionSettingsFromUI);
+  document.getElementById('submit-usaco-cpid').addEventListener('input', saveSubmissionSettingsFromUI);
+  document.getElementById('btn-submit-open-problem').addEventListener('click', () => openSubmissionTarget('problemUrl'));
+  document.getElementById('btn-submit-open-submit').addEventListener('click', () => openSubmissionTarget('submitUrl'));
+  document.getElementById('btn-submit-export').addEventListener('click', exportSubmissionFile);
 
   // Settings modal
   document.getElementById('btn-settings-close').addEventListener('click', closeSettings);
@@ -379,6 +452,8 @@ function wireUI() {
   window.electronAPI.onMenuEvent('template', () => {});
   window.electronAPI.onMenuEvent('bundle-status', () => updateBundleStatus());
   window.electronAPI.onMenuEvent('import-vscode-ext', () => importVSCodeExtension());
+  window.electronAPI.onMenuEvent('import-vscode-vsix', () => importVSIXExtension());
+  window.electronAPI.onMenuEvent('open-project-folder', () => chooseProjectFolder());
 
   window.electronAPI.onFileOpened(({ filePath, content }) => {
     openFileContent(filePath, content);
@@ -454,6 +529,19 @@ function newFile() {
   isDirty = false;
   updateTitle();
   refreshGitStatus();
+  toggleWelcomeScreen(true); // Empty file shows welcome screen? Or maybe just empty.
+  // Usually "New File" means "I want to type". So let's focus editor and hide welcome screen if user starts typing.
+  // Actually, let's keep it visible until they type, OR insert a template.
+  // Let's insert the default template again for convenience.
+  const lang = settings.language || 'java';
+  const templateKey = lang === 'java' ? 'java-usaco' : lang === 'cpp' ? 'cpp-usaco' : null;
+  if (templateKey) {
+    editor.setValue(TEMPLATES[templateKey]);
+    toggleWelcomeScreen(false);
+  } else {
+    toggleWelcomeScreen(true);
+  }
+  refreshProjectTree();
 }
 
 async function openFile() {
@@ -471,16 +559,28 @@ function openFileContent(filePath, content) {
   isDirty = false;
   updateTitle();
   window.electronAPI.addRecentFile(filePath);
+  toggleWelcomeScreen(false);
 
   // Auto-detect language
   const ext = filePath.split('.').pop().toLowerCase();
   const langMap = { java: 'java', cpp: 'cpp', cc: 'cpp', c: 'cpp', py: 'python' };
   const lang = langMap[ext] || 'java';
+  
+  // Update UI
   document.getElementById('lang-select').value = lang;
-  document.getElementById('lang-select').dispatchEvent(new Event('change'));
+  settings.language = lang; // Temp update
+  setEditorLanguage(lang);
+  updateLangBadge(lang);
+  document.getElementById('sb-lang').textContent = { java: 'Java', cpp: 'C++', python: 'Python' }[lang] || lang;
 
   loadRecentFiles();
   refreshGitStatus();
+
+  if (!workspaceRoot || !isPathInsideRoot(filePath, workspaceRoot)) {
+    void setWorkspaceRoot(requirePathDirname(filePath), true);
+  } else {
+    refreshProjectTree();
+  }
 }
 
 async function saveFile() {
@@ -530,9 +630,163 @@ async function loadRecentFiles() {
   });
 }
 
+// ─── Project Explorer ─────────────────────────────────────────────────────────
+async function chooseProjectFolder() {
+  const result = await window.electronAPI.openFolderDialog();
+  if (!result || result.canceled || !result.filePaths?.length) return;
+  await setWorkspaceRoot(result.filePaths[0], true);
+}
+
+async function setWorkspaceRoot(rootPath, persist = true) {
+  if (!rootPath) return;
+  workspaceRoot = rootPath;
+  expandedProjectDirs.clear();
+  expandedProjectDirs.add(rootPath);
+
+  if (persist) {
+    settings.workspaceRoot = rootPath;
+    await window.electronAPI.setSetting('workspaceRoot', rootPath);
+  }
+
+  renderProjectRootLabel();
+  await refreshProjectTree();
+}
+
+function renderProjectRootLabel() {
+  const label = document.getElementById('project-root-label');
+  if (!label) return;
+  if (!workspaceRoot) {
+    label.textContent = 'No project folder selected.';
+    label.title = '';
+    return;
+  }
+  const base = basenameSafe(workspaceRoot);
+  label.textContent = base || workspaceRoot;
+  label.title = workspaceRoot;
+}
+
+async function refreshProjectTree() {
+  const container = document.getElementById('project-tree');
+  if (!container) return;
+
+  renderProjectRootLabel();
+  if (!workspaceRoot) {
+    container.innerHTML = '<div class="project-tree-empty">Open a folder to enable project explorer.</div>';
+    return;
+  }
+
+  const treeResult = await window.electronAPI.listWorkspaceTree(workspaceRoot, {
+    maxDepth: 6,
+    maxNodes: 3500,
+    ignoreHidden: true,
+  });
+
+  if (!treeResult.ok || !treeResult.tree) {
+    container.innerHTML = `<div class="project-tree-empty">${escHtml(treeResult.error || 'Unable to read folder.')}</div>`;
+    return;
+  }
+
+  renderProjectTree(treeResult.tree, !!treeResult.truncated);
+}
+
+function renderProjectTree(rootNode, truncated) {
+  const container = document.getElementById('project-tree');
+  container.innerHTML = '';
+
+  const fragment = document.createDocumentFragment();
+  const children = Array.isArray(rootNode.children) ? rootNode.children : [];
+  children.forEach((child) => appendProjectNode(fragment, child, 0));
+
+  if (!children.length) {
+    const empty = document.createElement('div');
+    empty.className = 'project-tree-empty';
+    empty.textContent = 'Folder is empty.';
+    fragment.appendChild(empty);
+  }
+
+  if (truncated) {
+    const cutoff = document.createElement('div');
+    cutoff.className = 'project-tree-empty';
+    cutoff.textContent = 'Tree truncated for performance.';
+    fragment.appendChild(cutoff);
+  }
+
+  container.appendChild(fragment);
+}
+
+function appendProjectNode(parent, node, depth) {
+  const row = document.createElement('div');
+  row.className = `project-node ${node.type}`;
+  row.style.paddingLeft = `${6 + depth * 12}px`;
+
+  const caret = document.createElement('span');
+  caret.className = 'caret';
+  const name = document.createElement('span');
+  name.className = 'name';
+
+  if (node.type === 'dir') {
+    const expanded = expandedProjectDirs.has(node.path);
+    caret.textContent = expanded ? '▾' : '▸';
+    name.textContent = `📁 ${node.name}`;
+    row.appendChild(caret);
+    row.appendChild(name);
+    row.addEventListener('click', () => {
+      if (expandedProjectDirs.has(node.path)) expandedProjectDirs.delete(node.path);
+      else expandedProjectDirs.add(node.path);
+      refreshProjectTree();
+    });
+    parent.appendChild(row);
+
+    if (expanded && Array.isArray(node.children)) {
+      node.children.forEach((child) => appendProjectNode(parent, child, depth + 1));
+    }
+    return;
+  }
+
+  if (node.path === currentFilePath) row.classList.add('active');
+  caret.textContent = '';
+  name.textContent = `📄 ${node.name}`;
+  row.appendChild(caret);
+  row.appendChild(name);
+  row.addEventListener('click', async () => {
+    const { ok, content, error } = await window.electronAPI.readFile(node.path);
+    if (!ok) {
+      alert(`Failed to open file: ${error}`);
+      return;
+    }
+    openFileContent(node.path, content);
+  });
+  parent.appendChild(row);
+}
+
 // ─── Code Formatting ─────────────────────────────────────────────────────────
 async function formatCode() {
+  const currentCode = editor.getValue();
+  const language = settings.language || 'java';
+
+  try {
+    const result = await window.electronAPI.formatCode({
+      language,
+      code: currentCode,
+      javaFormatterPath: settings.javaFormatterPath || '',
+      clangFormatPath: settings.clangFormatPath || '',
+    });
+
+    if (result?.ok && typeof result.formattedCode === 'string') {
+      if (result.formattedCode !== currentCode) {
+        const pos = editor.getPosition();
+        editor.setValue(result.formattedCode);
+        if (pos) editor.setPosition(pos);
+      }
+      setStatus('ok', `Formatted (${result.tool || 'external'})`);
+      return;
+    }
+  } catch (err) {
+    console.error(err);
+  }
+
   await editor.getAction('editor.action.formatDocument').run();
+  setStatus('idle', 'Formatted (Monaco)');
 }
 
 // ─── Run Code ─────────────────────────────────────────────────────────────────
@@ -659,6 +913,44 @@ async function pasteTestCase() {
     console.error('Failed to read clipboard', err);
     alert('Could not paste from clipboard. Please grant permission.');
   }
+}
+
+async function fetchProblemSamplesIntoTests() {
+  const input = document.getElementById('problem-url-input');
+  const url = (input?.value || '').trim();
+  if (!url) {
+    alert('Paste a problem URL first.');
+    return;
+  }
+
+  setStatus('running', 'Fetching samples…');
+  const result = await window.electronAPI.fetchProblemSamples(url);
+  if (!result.ok) {
+    setStatus('error', 'Fetch failed');
+    alert(result.error || 'Could not fetch samples.');
+    return;
+  }
+
+  if (!Array.isArray(result.testCases) || !result.testCases.length) {
+    setStatus('error', 'No samples found');
+    alert('No sample tests were detected on this page.');
+    return;
+  }
+
+  const shouldReplace = testCases.length > 0
+    ? confirm(`Found ${result.testCases.length} sample test(s). Replace existing tests? Click Cancel to append.`)
+    : true;
+
+  if (shouldReplace) {
+    testCases = [];
+    nextTestId = 1;
+    document.getElementById('test-cases-container').innerHTML = '';
+  }
+
+  result.testCases.forEach((tc) => addTestCase(tc.input || '', tc.expectedOutput || ''));
+  saveTestCasesToStorage();
+  switchTab('tests');
+  setStatus('ok', `Loaded ${result.testCases.length} samples (${result.source || 'problem'})`);
 }
 
 function renderTestCase(tc) {
@@ -914,6 +1206,8 @@ function openSettings() {
   document.getElementById('setting-javac-path').value = settings.javacPath || '';
   document.getElementById('setting-cpp-compiler').value = settings.cppCompiler || '';
   document.getElementById('setting-python-path').value = settings.pythonPath || '';
+  document.getElementById('setting-java-formatter-path').value = settings.javaFormatterPath || '';
+  document.getElementById('setting-clang-format-path').value = settings.clangFormatPath || '';
   document.getElementById('setting-auto-pick-bundle').checked = settings.autoPickBestBundle !== false;
   document.getElementById('setting-usaco-mode').checked = settings.usacoMode || false;
   document.getElementById('setting-usaco-problem').value = settings.usacoProblem || 'problem';
@@ -939,6 +1233,8 @@ async function saveSettings() {
   const javacPath = document.getElementById('setting-javac-path').value.trim();
   const cppCompiler = document.getElementById('setting-cpp-compiler').value.trim();
   const pythonPath = document.getElementById('setting-python-path').value.trim();
+  const javaFormatterPath = document.getElementById('setting-java-formatter-path').value.trim();
+  const clangFormatPath = document.getElementById('setting-clang-format-path').value.trim();
   const autoPickBestBundle = document.getElementById('setting-auto-pick-bundle').checked;
   const usacoMode = document.getElementById('setting-usaco-mode').checked;
   const usacoProblem = sanitizeProblemName(document.getElementById('setting-usaco-problem').value.trim() || 'problem');
@@ -946,7 +1242,7 @@ async function saveSettings() {
 
   const updates = { theme: newTheme, fontSize: newFontSize, tabSize: newTabSize,
     showLineNumbers, wordWrap, minimap, formatOnSave, timeLimitMs, memoryLimitMb,
-    javaPath, javacPath, cppCompiler, pythonPath, autoPickBestBundle,
+    javaPath, javacPath, cppCompiler, pythonPath, javaFormatterPath, clangFormatPath, autoPickBestBundle,
     usacoMode, usacoProblem, usacoUseFileInput };
 
   for (const [k, v] of Object.entries(updates)) {
@@ -974,6 +1270,9 @@ async function refreshGitStatus() {
     const status = await window.electronAPI.getGitStatus(currentFilePath || null);
     gitState = status;
     renderGitStatus();
+    if (!workspaceRoot && status?.inRepo && status.root) {
+      await setWorkspaceRoot(status.root, true);
+    }
   } catch (err) {
     console.error(err);
   }
@@ -995,13 +1294,94 @@ function renderGitStatus() {
     return;
   }
 
-  branchEl.textContent = `Branch: ${gitState.branch}`;
-  dirtyEl.textContent = gitState.dirtyCount > 0
-    ? `${gitState.dirtyCount} pending changes`
-    : 'Clean working tree';
-  rootEl.textContent = gitState.root.split('/').pop() || gitState.root;
+  branchEl.textContent = gitState.branch;
+  dirtyEl.textContent = gitState.dirtyCount > 0 ? `• ${gitState.dirtyCount}` : '';
+  rootEl.textContent = basenameSafe(gitState.root);
   rootEl.title = gitState.root;
   remoteBtn.disabled = !toBrowsableRemoteUrl(gitState.remoteUrl);
+
+  // Update Status Bar
+  const sbBranch = document.getElementById('sb-git-text');
+  if (sbBranch) sbBranch.textContent = gitState.branch;
+}
+
+// ─── Submission Helpers ───────────────────────────────────────────────────────
+function initSubmissionPanel() {
+  document.getElementById('submit-platform').value = settings.submitPlatform || 'codeforces';
+  document.getElementById('submit-cf-contest').value = settings.submitCodeforcesContest || '';
+  document.getElementById('submit-cf-problem').value = settings.submitCodeforcesProblem || 'A';
+  document.getElementById('submit-usaco-cpid').value = settings.submitUsacoCpid || '';
+  updateSubmissionFieldVisibility();
+}
+
+function updateSubmissionFieldVisibility() {
+  const platform = document.getElementById('submit-platform').value;
+  const codeforcesFields = document.getElementById('submit-codeforces-fields');
+  const usacoFields = document.getElementById('submit-usaco-fields');
+  if (platform === 'usaco') {
+    codeforcesFields.classList.add('submit-hidden');
+    usacoFields.classList.remove('submit-hidden');
+  } else {
+    codeforcesFields.classList.remove('submit-hidden');
+    usacoFields.classList.add('submit-hidden');
+  }
+}
+
+function saveSubmissionSettingsFromUI() {
+  settings.submitPlatform = document.getElementById('submit-platform').value;
+  settings.submitCodeforcesContest = document.getElementById('submit-cf-contest').value.trim();
+  settings.submitCodeforcesProblem = (document.getElementById('submit-cf-problem').value.trim() || 'A').toUpperCase();
+  settings.submitUsacoCpid = document.getElementById('submit-usaco-cpid').value.trim();
+
+  updateSubmissionFieldVisibility();
+
+  window.electronAPI.setSetting('submitPlatform', settings.submitPlatform);
+  window.electronAPI.setSetting('submitCodeforcesContest', settings.submitCodeforcesContest);
+  window.electronAPI.setSetting('submitCodeforcesProblem', settings.submitCodeforcesProblem);
+  window.electronAPI.setSetting('submitUsacoCpid', settings.submitUsacoCpid);
+}
+
+async function getSubmissionTargetsFromUI() {
+  saveSubmissionSettingsFromUI();
+  return window.electronAPI.getSubmissionTargets({
+    platform: settings.submitPlatform,
+    contestId: settings.submitCodeforcesContest,
+    problemIndex: settings.submitCodeforcesProblem,
+    cpid: settings.submitUsacoCpid,
+  });
+}
+
+async function openSubmissionTarget(targetKey) {
+  const result = await getSubmissionTargetsFromUI();
+  if (!result.ok) {
+    alert(result.error || 'Could not build submission URLs.');
+    return;
+  }
+  const url = result[targetKey];
+  if (!url) {
+    alert('URL is not available for this action.');
+    return;
+  }
+  window.electronAPI.openExternal(url);
+}
+
+async function exportSubmissionFile() {
+  const ext = settings.language === 'cpp' ? 'cpp' : settings.language === 'python' ? 'py' : 'java';
+  let baseName = currentFilePath ? basenameSafe(currentFilePath).replace(/\.[^.]+$/, '') : 'solution';
+  if (settings.submitPlatform === 'usaco' && settings.usacoProblem) {
+    baseName = sanitizeProblemName(settings.usacoProblem);
+  }
+
+  const result = await window.electronAPI.saveFileDialog(`${baseName}.${ext}`);
+  if (result.canceled || !result.filePath) return;
+
+  const write = await window.electronAPI.writeFile(result.filePath, editor.getValue());
+  if (!write.ok) {
+    alert(`Export failed: ${write.error}`);
+    return;
+  }
+
+  setStatus('ok', `Exported ${basenameSafe(result.filePath)}`);
 }
 
 // ─── VSCode Extension Snippet Import ─────────────────────────────────────────
@@ -1011,6 +1391,18 @@ async function importVSCodeExtension() {
 
   const folderPath = result.filePaths[0];
   const importResult = await window.electronAPI.importVSCodeExtensionFolder(folderPath);
+  applyImportedExtensionResult(importResult);
+}
+
+async function importVSIXExtension() {
+  const result = await window.electronAPI.openVsixDialog();
+  if (!result || result.canceled || !result.filePaths?.length) return;
+
+  const importResult = await window.electronAPI.importVSIXFile(result.filePaths[0]);
+  applyImportedExtensionResult(importResult);
+}
+
+function applyImportedExtensionResult(importResult) {
   if (!importResult.ok) {
     alert(`Import failed: ${importResult.error}`);
     return;
@@ -1125,9 +1517,10 @@ function renderImportedExtensions() {
   importedVSCodeExtensions.forEach((item) => {
     const row = document.createElement('div');
     row.className = 'vscode-import-item';
+    const sourceType = item.extension.sourceType === 'vsix' ? 'vsix' : 'folder';
     row.innerHTML = `
       <div class="vscode-import-title">${escHtml(item.extension.displayName || item.extension.name)}</div>
-      <div class="vscode-import-meta">${item.snippetCount || 0} snippets</div>
+      <div class="vscode-import-meta">${item.snippetCount || 0} snippets • ${sourceType}</div>
     `;
     listEl.appendChild(row);
   });
@@ -1154,6 +1547,21 @@ function basenameSafe(value) {
   if (!value) return '(missing)';
   const parts = value.split(/[\\/]/);
   return parts[parts.length - 1] || value;
+}
+
+function requirePathDirname(value) {
+  if (!value) return '';
+  const idx = Math.max(value.lastIndexOf('/'), value.lastIndexOf('\\'));
+  if (idx <= 0) return value;
+  return value.slice(0, idx);
+}
+
+function isPathInsideRoot(filePath, rootPath) {
+  if (!filePath || !rootPath) return false;
+  const normalize = (value) => value.replace(/\\/g, '/').replace(/\/+$/, '');
+  const fp = normalize(filePath);
+  const rp = normalize(rootPath);
+  return fp === rp || fp.startsWith(`${rp}/`);
 }
 
 function sanitizeProblemName(name) {

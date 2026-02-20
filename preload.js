@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   writeFile: (filePath, content) => ipcRenderer.invoke('file:write', filePath, content),
   openFileDialog: () => ipcRenderer.invoke('file:open-dialog'),
   openFolderDialog: () => ipcRenderer.invoke('file:open-folder-dialog'),
+  openVsixDialog: () => ipcRenderer.invoke('file:open-vsix-dialog'),
   saveFileDialog: (defaultName) => ipcRenderer.invoke('file:save-dialog', defaultName),
   getRecentFiles: () => ipcRenderer.invoke('file:recent'),
   addRecentFile: (filePath) => ipcRenderer.invoke('file:add-recent', filePath),
@@ -33,9 +34,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Workspace / Git
   getGitStatus: (targetPath) => ipcRenderer.invoke('git:status', targetPath),
+  listWorkspaceTree: (rootPath, options) => ipcRenderer.invoke('workspace:list-tree', rootPath, options),
 
   // VSCode extension import
   importVSCodeExtensionFolder: (folderPath) => ipcRenderer.invoke('extension:import-folder', folderPath),
+  importVSIXFile: (filePath) => ipcRenderer.invoke('extension:import-vsix', filePath),
+  getImportedExtensions: () => ipcRenderer.invoke('extension:list-imports'),
+
+  // Formatting + problem fetch + submit
+  formatCode: (opts) => ipcRenderer.invoke('format:code', opts),
+  fetchProblemSamples: (url) => ipcRenderer.invoke('problem:fetch-samples', url),
+  getSubmissionTargets: (opts) => ipcRenderer.invoke('submission:targets', opts),
 
   // Menu events (main → renderer)
   onMenuEvent: (event, callback) => {

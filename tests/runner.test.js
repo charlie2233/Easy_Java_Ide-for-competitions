@@ -9,6 +9,11 @@ const { runCode } = require('../src/main/runner');
 const { runTestCases } = require('../src/main/test-runner');
 const { detectBundles } = require('../src/main/bundle-manager');
 const { importVSCodeExtensionFolder } = require('../src/main/vscode-importer');
+const { importVSIXFile } = require('../src/main/vsix-importer');
+const { parseProblemSamplesFromHtml } = require('../src/main/problem-fetcher');
+const { listWorkspaceTree } = require('../src/main/workspace-manager');
+const { buildSubmissionTargets } = require('../src/main/submission-helper');
+const AdmZip = require('adm-zip');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -205,6 +210,87 @@ test('VSCode importer: imports Java/C++/Python snippets from unpacked extension'
   }
 });
 
+test('VSIX importer: imports snippets from .vsix package', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'compide-vsix-test-'));
+  try {
+    const extensionDir = path.join(tempRoot, 'extension');
+    const snippetsDir = path.join(extensionDir, 'snippets');
+    fs.mkdirSync(snippetsDir, { recursive: true });
+
+    fs.writeFileSync(path.join(extensionDir, 'package.json'), JSON.stringify({
+      name: 'vsix-sample',
+      version: '1.0.0',
+      contributes: {
+        snippets: [{ language: 'java', path: './snippets/java.json' }],
+      },
+    }, null, 2));
+
+    fs.writeFileSync(path.join(snippetsDir, 'java.json'), JSON.stringify({
+      Main: {
+        prefix: 'main',
+        body: ['public class Main {', '  public static void main(String[] args) {}', '}'],
+      },
+    }, null, 2));
+
+    const vsixPath = path.join(tempRoot, 'sample.vsix');
+    const zip = new AdmZip();
+    zip.addLocalFolder(extensionDir, 'extension');
+    zip.writeZip(vsixPath);
+
+    const imported = importVSIXFile(vsixPath);
+    assert(imported.ok, imported.error || 'VSIX import should succeed');
+    assertEqual(imported.extension.sourceType, 'vsix', 'Should mark extension source type');
+    assert(imported.snippetsByLanguage.java.length >= 1, 'Java snippet should be imported');
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+// ─── Workspace / Submission / Problem Fetcher Tests ─────────────────────────
+test('Workspace manager: lists files and directories', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'compide-workspace-'));
+  try {
+    fs.mkdirSync(path.join(root, 'src'));
+    fs.writeFileSync(path.join(root, 'src', 'Main.java'), 'public class Main {}');
+    const result = listWorkspaceTree(root, { maxDepth: 4, maxNodes: 200, ignoreHidden: true });
+    assert(result.ok, 'Tree listing should succeed');
+    assert(result.tree && result.tree.type === 'dir', 'Root should be dir node');
+    const srcNode = result.tree.children.find((node) => node.name === 'src');
+    assert(srcNode && srcNode.type === 'dir', 'src dir should exist');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Submission helper: builds Codeforces and USACO links', async () => {
+  const cf = buildSubmissionTargets({ platform: 'codeforces', contestId: '2000', problemIndex: 'a' });
+  assert(cf.ok, 'Codeforces target should build');
+  assertEqual(cf.problemUrl, 'https://codeforces.com/contest/2000/problem/A', 'Codeforces problem URL');
+
+  const usaco = buildSubmissionTargets({ platform: 'usaco', cpid: '1234' });
+  assert(usaco.ok, 'USACO target should build');
+  assert(usaco.problemUrl.includes('cpid=1234'), 'USACO cpid URL');
+});
+
+test('Problem fetcher parser: extracts sample tests from HTML', async () => {
+  const html = `
+    <html>
+      <head><title>Sample Problem</title></head>
+      <body>
+        <div class="input"><pre>2 3</pre></div>
+        <div class="output"><pre>5</pre></div>
+        <div class="input"><pre>10 20</pre></div>
+        <div class="output"><pre>30</pre></div>
+      </body>
+    </html>
+  `;
+  const parsed = parseProblemSamplesFromHtml(html, 'https://codeforces.com/contest/1/problem/A');
+  assert(parsed.ok, 'Parser should succeed');
+  assertEqual(parsed.source, 'codeforces', 'Source detection');
+  assertEqual(parsed.testCases.length, 2, 'Should parse two samples');
+  assertEqual(parsed.testCases[1].expectedOutput, '30', 'Second expected output');
+});
+
 // ─── Run All ──────────────────────────────────────────────────────────────────
 async function main() {
   const groups = [
@@ -214,6 +300,10 @@ async function main() {
     { name: 'Test Runner', prefix: 'Test runner' },
     { name: 'Bundle Manager', prefix: 'detectBundles' },
     { name: 'VSCode Importer', prefix: 'VSCode importer' },
+    { name: 'VSIX Importer', prefix: 'VSIX importer' },
+    { name: 'Workspace / Submit / Fetch', prefix: 'Workspace manager' },
+    { name: 'Workspace / Submit / Fetch', prefix: 'Submission helper' },
+    { name: 'Workspace / Submit / Fetch', prefix: 'Problem fetcher parser' },
   ];
 
   for (const group of groups) {

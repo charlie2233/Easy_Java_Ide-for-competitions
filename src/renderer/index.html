@@ -58,6 +58,16 @@
       </div>
 
       <div class="sidebar-section">
+        <div class="sidebar-title">PROJECT</div>
+        <div class="sidebar-inline-actions">
+          <button class="tool-btn sidebar-mini-btn" id="btn-open-project-folder" title="Choose project folder">📂</button>
+          <button class="tool-btn sidebar-mini-btn" id="btn-refresh-project" title="Refresh project tree">↻</button>
+        </div>
+        <div id="project-root-label">No project folder selected.</div>
+        <div id="project-tree"></div>
+      </div>
+
+      <div class="sidebar-section">
         <div class="sidebar-title">BUNDLE STATUS</div>
         <div class="sidebar-inline-actions">
           <button class="tool-btn sidebar-mini-btn" id="btn-refresh-bundles" title="Refresh runtime detection">↻</button>
@@ -95,9 +105,45 @@
         <div class="sidebar-title">VSCODE IMPORT</div>
         <div id="vscode-import-summary">
           <span id="vscode-import-count">0 snippets</span>
-          <button class="tool-btn sidebar-mini-btn" id="btn-import-vscode-ext" title="Import unpacked VSCode extension folder">+ Import</button>
+          <div class="sidebar-inline-actions compact">
+            <button class="tool-btn sidebar-mini-btn" id="btn-import-vscode-ext" title="Import unpacked VSCode extension folder">+ Folder</button>
+            <button class="tool-btn sidebar-mini-btn" id="btn-import-vscode-vsix" title="Import .vsix extension package">+ VSIX</button>
+          </div>
         </div>
         <div id="vscode-imports-list"></div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-title">SUBMISSION</div>
+        <div id="submit-panel">
+          <label class="submit-label">Platform
+            <select id="submit-platform">
+              <option value="codeforces">Codeforces</option>
+              <option value="usaco">USACO</option>
+            </select>
+          </label>
+
+          <div id="submit-codeforces-fields">
+            <label class="submit-label">Contest
+              <input type="text" id="submit-cf-contest" placeholder="e.g. 2000" />
+            </label>
+            <label class="submit-label">Problem
+              <input type="text" id="submit-cf-problem" placeholder="e.g. A" />
+            </label>
+          </div>
+
+          <div id="submit-usaco-fields" class="submit-hidden">
+            <label class="submit-label">USACO CPID (optional)
+              <input type="text" id="submit-usaco-cpid" placeholder="e.g. 1234" />
+            </label>
+          </div>
+
+          <div class="submit-actions">
+            <button class="tool-btn" id="btn-submit-open-problem">Problem</button>
+            <button class="tool-btn" id="btn-submit-open-submit">Submit</button>
+            <button class="tool-btn" id="btn-submit-export">Export</button>
+          </div>
+        </div>
       </div>
     </aside>
 
@@ -117,6 +163,23 @@
               <button class="tool-btn" id="btn-format" title="Format code">✨</button>
             </div>
           </div>
+          
+          <!-- Welcome Screen (overlay) -->
+          <div id="welcome-screen" class="hidden">
+            <div class="welcome-hero">
+              <h1>CompIDE</h1>
+              <p>Competitive Programming Made Fast</p>
+            </div>
+            <div class="welcome-actions">
+              <button id="btn-welcome-new" class="welcome-btn">New File (⌘N)</button>
+              <button id="btn-welcome-open" class="welcome-btn">Open File (⌘O)</button>
+            </div>
+            <div class="welcome-keys">
+              <div class="key-row"><span class="key">⌘</span> + <span class="key">Enter</span> <span>Run Code</span></div>
+              <div class="key-row"><span class="key">⌘</span> + <span class="key">T</span> <span>Run Tests</span></div>
+            </div>
+          </div>
+
           <div id="monaco-editor"></div>
         </div>
 
@@ -158,13 +221,30 @@
               <span class="toolbar-label">Test Cases</span>
               <button class="tool-btn" id="btn-add-test" title="Add empty test">+ Add</button>
               <button class="tool-btn" id="btn-paste-test" title="Paste sample from clipboard (auto-detects Input/Output)">📋 Paste</button>
+              <button class="tool-btn" id="btn-fetch-problem" title="Fetch sample tests from problem URL">🌐 Fetch</button>
               <button class="tool-btn btn-primary-sm" id="btn-run-all-tests">▶ Run All</button>
+            </div>
+            <div id="tests-fetch-row">
+              <input id="problem-url-input" type="text" placeholder="Paste Codeforces/USACO problem URL to auto-load sample tests" />
             </div>
             <div id="test-cases-container"></div>
           </div>
         </div>
 
       </div>
+    </div>
+  </div>
+
+  <!-- ── Status Bar ─────────────────────────────────────────── -->
+  <div id="status-bar">
+    <div class="status-left">
+      <span id="sb-git-branch" class="status-item" title="Git Branch"><span class="icon">ᛘ</span> <span id="sb-git-text">-</span></span>
+    </div>
+    <div class="status-right">
+      <span id="sb-cursor" class="status-item">Ln 1, Col 1</span>
+      <span id="sb-indent" class="status-item">Spaces: 4</span>
+      <span id="sb-encoding" class="status-item">UTF-8</span>
+      <span id="sb-lang" class="status-item">Java</span>
     </div>
   </div>
 
@@ -241,6 +321,12 @@
           </label>
           <label>Python Binary
             <input type="text" id="setting-python-path" placeholder="python3 or py -3" />
+          </label>
+          <label>Java Formatter Path
+            <input type="text" id="setting-java-formatter-path" placeholder="google-java-format or /path/tool.jar" />
+          </label>
+          <label>C++ Formatter Path
+            <input type="text" id="setting-clang-format-path" placeholder="clang-format" />
           </label>
         </div>
       </div>

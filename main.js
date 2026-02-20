@@ -29,6 +29,13 @@ async function getStore() {
         usacoMode: false,
         usacoProblem: 'problem',
         usacoUseFileInput: true,
+        workspaceRoot: '',
+        javaFormatterPath: '',
+        clangFormatPath: '',
+        submitPlatform: 'codeforces',
+        submitCodeforcesContest: '',
+        submitCodeforcesProblem: 'A',
+        submitUsacoCpid: '',
         vscodeImports: [],
         showLineNumbers: true,
         wordWrap: false,
@@ -129,6 +136,9 @@ function buildMenu() {
         { label: 'Settings', accelerator: 'CmdOrCtrl+,', click: () => mainWindow.webContents.send('menu:settings') },
         { label: 'Language Bundle Status', click: () => mainWindow.webContents.send('menu:bundle-status') },
         { label: 'Import VSCode Extension Folder…', click: () => mainWindow.webContents.send('menu:import-vscode-ext') },
+        { label: 'Import VSIX…', click: () => mainWindow.webContents.send('menu:import-vscode-vsix') },
+        { type: 'separator' },
+        { label: 'Open Project Folder…', click: () => mainWindow.webContents.send('menu:open-project-folder') },
         { label: 'Insert Template…', click: () => mainWindow.webContents.send('menu:template') },
       ],
     },
@@ -219,6 +229,17 @@ ipcMain.handle('file:open-folder-dialog', async () => {
   return result;
 });
 
+ipcMain.handle('file:open-vsix-dialog', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile'],
+    filters: [
+      { name: 'VSCode Extension', extensions: ['vsix'] },
+      { name: 'All Files', extensions: ['*'] },
+    ],
+  });
+  return result;
+});
+
 ipcMain.handle('file:save-dialog', async (_e, defaultName) => {
   const result = await dialog.showSaveDialog(mainWindow, {
     defaultPath: defaultName,
@@ -249,6 +270,11 @@ ipcMain.handle('shell:open-external', (_e, url) => shell.openExternal(url));
 const { runCode, killProcess } = require('./src/main/runner');
 const { detectBundles, resolveToolchain } = require('./src/main/bundle-manager');
 const { importVSCodeExtensionFolder } = require('./src/main/vscode-importer');
+const { importVSIXFile } = require('./src/main/vsix-importer');
+const { listWorkspaceTree } = require('./src/main/workspace-manager');
+const { formatCode } = require('./src/main/formatter');
+const { fetchProblemSamples } = require('./src/main/problem-fetcher');
+const { buildSubmissionTargets } = require('./src/main/submission-helper');
 
 function execInCwd(cmd, args, cwd) {
   return new Promise((resolve) => {
@@ -311,6 +337,23 @@ async function currentRuntimeSettings(overrides = {}) {
     autoPickBestBundle: s.get('autoPickBestBundle') !== false,
     ...overrides,
   };
+}
+
+async function saveImportedExtensionMeta(extension, snippetCount) {
+  const s = await getStore();
+  const current = s.get('vscodeImports') || [];
+  const normalized = {
+    name: extension.name || '',
+    displayName: extension.displayName || extension.name || '',
+    version: extension.version || 'unknown',
+    publisher: extension.publisher || '',
+    sourcePath: extension.sourcePath || '',
+    sourceType: extension.sourceType || 'folder',
+    snippetCount: Number(snippetCount || 0),
+    importedAt: Date.now(),
+  };
+  const withoutDupes = current.filter((item) => item.sourcePath !== normalized.sourcePath);
+  s.set('vscodeImports', [normalized, ...withoutDupes].slice(0, 30));
 }
 
 function missingBundleResult(language, bundle) {
@@ -390,15 +433,44 @@ ipcMain.handle('bundle:resolve', async (_e, overrides = {}) => {
 // ─── Workspace + VSCode Import ───────────────────────────────────────────────
 ipcMain.handle('git:status', async (_e, targetPath) => getGitStatus(targetPath));
 
+ipcMain.handle('workspace:list-tree', async (_e, rootPath, options = {}) => {
+  return listWorkspaceTree(rootPath, options);
+});
+
 ipcMain.handle('extension:import-folder', async (_e, folderPath) => {
   const result = importVSCodeExtensionFolder(folderPath);
   if (!result.ok) return result;
-
-  const s = await getStore();
-  const current = s.get('vscodeImports') || [];
-  const withoutDupes = current.filter((item) => item.sourcePath !== result.extension.sourcePath);
-  s.set('vscodeImports', [result.extension, ...withoutDupes].slice(0, 20));
+  await saveImportedExtensionMeta(result.extension, result.snippetCount);
   return result;
+});
+
+ipcMain.handle('extension:import-vsix', async (_e, filePath) => {
+  const result = importVSIXFile(filePath);
+  if (!result.ok) return result;
+  await saveImportedExtensionMeta(result.extension, result.snippetCount);
+  return result;
+});
+
+ipcMain.handle('extension:list-imports', async () => {
+  return (await getStore()).get('vscodeImports') || [];
+});
+
+ipcMain.handle('format:code', async (_e, opts = {}) => {
+  const s = await getStore();
+  return formatCode({
+    language: opts.language,
+    code: opts.code,
+    javaFormatterPath: opts.javaFormatterPath || s.get('javaFormatterPath') || '',
+    clangFormatPath: opts.clangFormatPath || s.get('clangFormatPath') || '',
+  });
+});
+
+ipcMain.handle('problem:fetch-samples', async (_e, url) => {
+  return fetchProblemSamples(url);
+});
+
+ipcMain.handle('submission:targets', async (_e, opts = {}) => {
+  return buildSubmissionTargets(opts);
 });
 
 // ─── App Lifecycle ────────────────────────────────────────────────────────────

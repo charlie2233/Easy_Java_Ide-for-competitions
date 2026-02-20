@@ -28,6 +28,7 @@
     "electron-builder": "^25.1.8"
   },
   "dependencies": {
+    "adm-zip": "^0.5.16",
     "electron-store": "^11.0.2",
     "monaco-editor": "^0.55.1",
     "split.js": "^1.6.5"
