@@ -593,7 +593,7 @@ function setupResizer() {
     startX = e.clientX;
     startEditorWidth = editorPane.getBoundingClientRect().width;
     handle.classList.add('dragging');
-    document.body.style.cursor = 'col-resize';
+    document.body.classList.add('resizing-layout');
     e.preventDefault();
   });
 
@@ -614,7 +614,7 @@ function setupResizer() {
     if (dragging) {
       dragging = false;
       handle.classList.remove('dragging');
-      document.body.style.cursor = '';
+      document.body.classList.remove('resizing-layout');
     }
   });
 }
@@ -832,7 +832,7 @@ function appendProjectNode(parent, node, depth) {
   if (node.type === 'dir') {
     const expanded = expandedProjectDirs.has(node.path);
     caret.textContent = expanded ? '▾' : '▸';
-    name.textContent = `📁 ${node.name}`;
+    name.textContent = node.name;
     row.appendChild(caret);
     row.appendChild(name);
     row.addEventListener('click', () => {
@@ -850,7 +850,7 @@ function appendProjectNode(parent, node, depth) {
 
   if (node.path === currentFilePath) row.classList.add('active');
   caret.textContent = '';
-  name.textContent = `📄 ${node.name}`;
+  name.textContent = node.name;
   row.appendChild(caret);
   row.appendChild(name);
   row.addEventListener('click', async () => {
@@ -912,7 +912,7 @@ async function runCodeWithInput() {
 }
 
 async function executeAndShow(code, language, input) {
-  setStatus('running', '⏳ Running…');
+  setStatus('running', 'Running...');
   document.getElementById('output-area').textContent = '';
   document.getElementById('run-time').textContent = '';
   document.getElementById('btn-run').disabled = true;
@@ -934,19 +934,19 @@ async function executeAndShow(code, language, input) {
     const output = document.getElementById('output-area');
 
     if (result.compileError) {
-      setStatus('error', '✗ Compile Error');
+      setStatus('error', 'Compile Error');
       output.textContent = result.stderr || 'Compilation failed.';
       output.style.color = 'var(--error)';
     } else if (result.timedOut) {
-      setStatus('tle', '⏰ Time Limit Exceeded');
+      setStatus('tle', 'Time Limit Exceeded');
       output.textContent = (result.stdout || '') + '\n[TLE: Process killed]';
       output.style.color = 'var(--warning)';
     } else if (result.exitCode !== 0) {
-      setStatus('error', '✗ Runtime Error');
+      setStatus('error', 'Runtime Error');
       output.textContent = result.stdout + (result.stderr ? '\n--- stderr ---\n' + result.stderr : '');
       output.style.color = 'var(--error)';
     } else {
-      setStatus('ok', '✓ Done');
+      setStatus('ok', 'Completed');
       output.textContent = result.stdout || '(no output)';
       output.style.color = 'var(--text-primary)';
     }
@@ -967,7 +967,7 @@ async function executeAndShow(code, language, input) {
       }
     }
   } catch (err) {
-    setStatus('error', '✗ Error');
+    setStatus('error', 'Execution Error');
     document.getElementById('output-area').textContent = err.message;
   } finally {
     document.getElementById('btn-run').disabled = false;
@@ -977,7 +977,7 @@ async function executeAndShow(code, language, input) {
 
 function stopRun() {
   window.electronAPI.killProcess();
-  setStatus('idle', '■ Stopped');
+  setStatus('idle', 'Stopped');
   document.getElementById('btn-run').disabled = false;
   document.getElementById('btn-stop').disabled = true;
 }
@@ -1028,16 +1028,16 @@ async function fetchProblemSamplesIntoTests() {
     return;
   }
 
-  setStatus('running', 'Fetching samples…');
+  setStatus('running', 'Fetching Samples...');
   const result = await window.electronAPI.fetchProblemSamples(url);
   if (!result.ok) {
-    setStatus('error', 'Fetch failed');
+    setStatus('error', 'Fetch Failed');
     alert(result.error || 'Could not fetch samples.');
     return;
   }
 
   if (!Array.isArray(result.testCases) || !result.testCases.length) {
-    setStatus('error', 'No samples found');
+    setStatus('error', 'No Samples Found');
     alert('No sample tests were detected on this page.');
     return;
   }

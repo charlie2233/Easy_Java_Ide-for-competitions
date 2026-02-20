@@ -19,8 +19,8 @@
     </div>
     <div id="titlebar-actions">
       <button id="btn-run" class="btn-primary" title="Run (⌘↵)">▶ Run</button>
-      <button id="btn-run-input" class="btn-secondary" title="Run with custom input (⌘⇧↵)">⌥ Input</button>
-      <button id="btn-run-tests" class="btn-secondary" title="Run all tests (⌘T)">🧪 Tests</button>
+      <button id="btn-run-input" class="btn-secondary" title="Run with custom input (⌘⇧↵)">Input</button>
+      <button id="btn-run-tests" class="btn-secondary" title="Run all tests (⌘T)">Tests</button>
       <button id="btn-stop" class="btn-danger" title="Stop (⌘.)">■ Stop</button>
       <button id="btn-settings" class="btn-icon" title="Settings (⌘,)">⚙</button>
     </div>
@@ -34,9 +34,9 @@
       <div class="sidebar-section">
         <div class="sidebar-title">LANGUAGE</div>
         <select id="lang-select">
-          <option value="java">☕ Java</option>
-          <option value="cpp">⚡ C++</option>
-          <option value="python">🐍 Python</option>
+          <option value="java">Java</option>
+          <option value="cpp">C++</option>
+          <option value="python">Python</option>
         </select>
       </div>
 
@@ -60,8 +60,8 @@
       <div class="sidebar-section">
         <div class="sidebar-title">PROJECT</div>
         <div class="sidebar-inline-actions">
-          <button class="tool-btn sidebar-mini-btn" id="btn-open-project-folder" title="Choose project folder">📂</button>
-          <button class="tool-btn sidebar-mini-btn" id="btn-refresh-project" title="Refresh project tree">↻</button>
+          <button class="tool-btn sidebar-mini-btn" id="btn-open-project-folder" title="Choose project folder">Open</button>
+          <button class="tool-btn sidebar-mini-btn" id="btn-refresh-project" title="Refresh project tree">Sync</button>
         </div>
         <div id="project-root-label">No project folder selected.</div>
         <div id="project-tree"></div>
@@ -70,19 +70,19 @@
       <div class="sidebar-section">
         <div class="sidebar-title">BUNDLE STATUS</div>
         <div class="sidebar-inline-actions">
-          <button class="tool-btn sidebar-mini-btn" id="btn-refresh-bundles" title="Refresh runtime detection">↻</button>
+          <button class="tool-btn sidebar-mini-btn" id="btn-refresh-bundles" title="Refresh runtime detection">Scan</button>
         </div>
         <div id="bundle-status">
           <div class="bundle-item" id="bundle-java">
-            ☕ Java: <span>checking…</span>
+            Java: <span>checking…</span>
             <div class="bundle-meta"></div>
           </div>
           <div class="bundle-item" id="bundle-cpp">
-            ⚡ C++: <span>checking…</span>
+            C++: <span>checking…</span>
             <div class="bundle-meta"></div>
           </div>
           <div class="bundle-item" id="bundle-python">
-            🐍 Python: <span>checking…</span>
+            Python: <span>checking…</span>
             <div class="bundle-meta"></div>
           </div>
         </div>
@@ -91,8 +91,8 @@
       <div class="sidebar-section">
         <div class="sidebar-title">WORKSPACE</div>
         <div class="sidebar-inline-actions">
-          <button class="tool-btn sidebar-mini-btn" id="btn-refresh-repo" title="Refresh git status">↻</button>
-          <button class="tool-btn sidebar-mini-btn" id="btn-open-remote" title="Open remote URL">↗</button>
+          <button class="tool-btn sidebar-mini-btn" id="btn-refresh-repo" title="Refresh git status">Sync</button>
+          <button class="tool-btn sidebar-mini-btn" id="btn-open-remote" title="Open remote URL">Remote</button>
         </div>
         <div id="repo-status">
           <div id="repo-branch">No git repo</div>
@@ -158,9 +158,9 @@
           <div id="editor-toolbar">
             <span class="toolbar-label">Editor</span>
             <div class="toolbar-actions">
-              <button class="tool-btn" id="btn-open" title="Open file">📂</button>
-              <button class="tool-btn" id="btn-save" title="Save file">💾</button>
-              <button class="tool-btn" id="btn-format" title="Format code">✨</button>
+              <button class="tool-btn" id="btn-open" title="Open file">Open</button>
+              <button class="tool-btn" id="btn-save" title="Save file">Save</button>
+              <button class="tool-btn" id="btn-format" title="Format code">Format</button>
             </div>
           </div>
           
@@ -202,8 +202,8 @@
             <div id="output-toolbar">
               <span id="run-status" class="status-idle">Ready</span>
               <span id="run-time"></span>
-              <button class="tool-btn" id="btn-clear-output" title="Clear output">🗑</button>
-              <button class="tool-btn" id="btn-copy-output" title="Copy output">📋</button>
+              <button class="tool-btn" id="btn-clear-output" title="Clear output">Clear</button>
+              <button class="tool-btn" id="btn-copy-output" title="Copy output">Copy</button>
             </div>
             <pre id="output-area"></pre>
           </div>
@@ -212,7 +212,7 @@
           <div id="tab-input" class="io-tab-content">
             <div id="input-toolbar">
               <span class="toolbar-label">Custom Input</span>
-              <button class="tool-btn" id="btn-clear-input" title="Clear input">🗑</button>
+              <button class="tool-btn" id="btn-clear-input" title="Clear input">Clear</button>
             </div>
             <textarea id="input-area" placeholder="Type or paste input here…" spellcheck="false"></textarea>
           </div>
@@ -222,8 +222,8 @@
             <div id="tests-toolbar">
               <span class="toolbar-label">Test Cases</span>
               <button class="tool-btn" id="btn-add-test" title="Add empty test">+ Add</button>
-              <button class="tool-btn" id="btn-paste-test" title="Paste sample from clipboard (auto-detects Input/Output)">📋 Paste</button>
-              <button class="tool-btn" id="btn-fetch-problem" title="Fetch sample tests from problem URL">🌐 Fetch</button>
+              <button class="tool-btn" id="btn-paste-test" title="Paste sample from clipboard (auto-detects Input/Output)">Paste</button>
+              <button class="tool-btn" id="btn-fetch-problem" title="Fetch sample tests from problem URL">Fetch</button>
               <button class="tool-btn btn-primary-sm" id="btn-run-all-tests">▶ Run All</button>
             </div>
             <div id="tests-fetch-row">
@@ -240,7 +240,7 @@
   <!-- ── Status Bar ─────────────────────────────────────────── -->
   <div id="status-bar">
     <div class="status-left">
-      <span id="sb-git-branch" class="status-item" title="Git Branch"><span class="icon">ᛘ</span> <span id="sb-git-text">-</span></span>
+      <span id="sb-git-branch" class="status-item" title="Git Branch"><span class="icon">git</span> <span id="sb-git-text">-</span></span>
     </div>
     <div class="status-right">
       <span id="sb-cursor" class="status-item">Ln 1, Col 1</span>
