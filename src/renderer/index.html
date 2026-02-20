@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self' 'unsafe-inline' 'unsafe-eval' file: data: blob:;" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CompIDE — Competitive Programming IDE</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="theme-dark">
+
+  <!-- ── Title Bar ──────────────────────────────────────────── -->
+  <div id="titlebar">
+    <div id="titlebar-drag"></div>
+    <div id="titlebar-info">
+      <span id="lang-badge" class="badge">Java</span>
+      <span id="file-name">untitled.java</span>
+    </div>
+    <div id="titlebar-actions">
+      <button id="btn-run" class="btn-primary" title="Run (⌘↵)">▶ Run</button>
+      <button id="btn-run-input" class="btn-secondary" title="Run with custom input (⌘⇧↵)">⌥ Input</button>
+      <button id="btn-run-tests" class="btn-secondary" title="Run all tests (⌘T)">🧪 Tests</button>
+      <button id="btn-stop" class="btn-danger" title="Stop (⌘.)">■ Stop</button>
+      <button id="btn-settings" class="btn-icon" title="Settings (⌘,)">⚙</button>
+    </div>
+  </div>
+
+  <!-- ── Main Layout ────────────────────────────────────────── -->
+  <div id="main-layout">
+
+    <!-- Sidebar -->
+    <aside id="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">LANGUAGE</div>
+        <select id="lang-select">
+          <option value="java">☕ Java</option>
+          <option value="cpp">⚡ C++</option>
+          <option value="python">🐍 Python</option>
+        </select>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-title">TEMPLATES</div>
+        <div id="template-list">
+          <button class="template-btn" data-template="java-usaco">USACO Java</button>
+          <button class="template-btn" data-template="cpp-usaco">USACO C++</button>
+          <button class="template-btn" data-template="java-dp">DP Template</button>
+          <button class="template-btn" data-template="cpp-graph">Graph Template</button>
+          <button class="template-btn" data-template="java-scanner">Fast Scanner</button>
+          <button class="template-btn" data-template="cpp-segment">Segment Tree</button>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-title">RECENT FILES</div>
+        <div id="recent-files-list"></div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-title">BUNDLE STATUS</div>
+        <div id="bundle-status">
+          <div class="bundle-item" id="bundle-java">☕ Java: <span>checking…</span></div>
+          <div class="bundle-item" id="bundle-cpp">⚡ C++: <span>checking…</span></div>
+          <div class="bundle-item" id="bundle-python">🐍 Python: <span>checking…</span></div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Center Content -->
+    <div id="center-content">
+
+      <!-- Editor + IO split -->
+      <div id="editor-io-split">
+
+        <!-- Editor pane -->
+        <div id="editor-pane">
+          <div id="editor-toolbar">
+            <span class="toolbar-label">Editor</span>
+            <div class="toolbar-actions">
+              <button class="tool-btn" id="btn-open" title="Open file">📂</button>
+              <button class="tool-btn" id="btn-save" title="Save file">💾</button>
+              <button class="tool-btn" id="btn-format" title="Format code">✨</button>
+            </div>
+          </div>
+          <div id="monaco-editor"></div>
+        </div>
+
+        <!-- Resize handle -->
+        <div id="resize-handle-v" class="resize-handle resize-v"></div>
+
+        <!-- IO pane -->
+        <div id="io-pane">
+          <!-- Tabs -->
+          <div id="io-tabs">
+            <button class="io-tab active" data-tab="output">Output</button>
+            <button class="io-tab" data-tab="input">Input</button>
+            <button class="io-tab" data-tab="tests">Test Cases</button>
+          </div>
+
+          <!-- Output tab -->
+          <div id="tab-output" class="io-tab-content active">
+            <div id="output-toolbar">
+              <span id="run-status" class="status-idle">Ready</span>
+              <span id="run-time"></span>
+              <button class="tool-btn" id="btn-clear-output" title="Clear output">🗑</button>
+              <button class="tool-btn" id="btn-copy-output" title="Copy output">📋</button>
+            </div>
+            <pre id="output-area"></pre>
+          </div>
+
+          <!-- Input tab -->
+          <div id="tab-input" class="io-tab-content">
+            <div id="input-toolbar">
+              <span class="toolbar-label">Custom Input</span>
+              <button class="tool-btn" id="btn-clear-input" title="Clear input">🗑</button>
+            </div>
+            <textarea id="input-area" placeholder="Type or paste input here…" spellcheck="false"></textarea>
+          </div>
+
+          <!-- Tests tab -->
+          <div id="tab-tests" class="io-tab-content">
+            <div id="tests-toolbar">
+              <span class="toolbar-label">Test Cases</span>
+              <button class="tool-btn" id="btn-add-test">+ Add</button>
+              <button class="tool-btn btn-primary-sm" id="btn-run-all-tests">▶ Run All</button>
+            </div>
+            <div id="test-cases-container"></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Settings Modal ────────────────────────────────────── -->
+  <div id="settings-overlay" class="modal-overlay hidden">
+    <div id="settings-modal" class="modal">
+      <div class="modal-header">
+        <h2>Settings</h2>
+        <button class="modal-close" id="btn-settings-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="settings-section">
+          <h3>Appearance</h3>
+          <label>Theme
+            <select id="setting-theme">
+              <option value="dark">Dark</option>
+              <option value="light">Light</option>
+              <option value="hc-black">High Contrast</option>
+            </select>
+          </label>
+          <label>Font Size
+            <input type="number" id="setting-font-size" min="10" max="28" />
+          </label>
+        </div>
+        <div class="settings-section">
+          <h3>Editor</h3>
+          <label>Tab Size
+            <input type="number" id="setting-tab-size" min="2" max="8" />
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="setting-line-numbers" /> Show Line Numbers
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="setting-word-wrap" /> Word Wrap
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="setting-minimap" /> Minimap
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="setting-format-on-save" /> Format on Save
+          </label>
+        </div>
+        <div class="settings-section">
+          <h3>Execution</h3>
+          <label>Time Limit (ms)
+            <input type="number" id="setting-time-limit" min="100" max="30000" step="100" />
+          </label>
+          <label>Memory Limit (MB)
+            <input type="number" id="setting-memory-limit" min="32" max="1024" step="32" />
+          </label>
+        </div>
+        <div class="settings-section">
+          <h3>Language Paths</h3>
+          <label>Java Binary (leave blank for auto)
+            <input type="text" id="setting-java-path" placeholder="e.g. /usr/bin/java" />
+          </label>
+          <label>C++ Compiler
+            <input type="text" id="setting-cpp-compiler" placeholder="g++" />
+          </label>
+          <label>Python Binary
+            <input type="text" id="setting-python-path" placeholder="python3" />
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-settings-save" class="btn-primary">Save Settings</button>
+        <button id="btn-settings-cancel" class="modal-close-btn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Monaco loader -->
+  <script>
+    // Set Monaco base path so it can load its workers from node_modules
+    window.monacoBasePath = '../../../node_modules/monaco-editor/min/vs';
+  </script>
+  <script src="../../../node_modules/monaco-editor/min/vs/loader.js"></script>
+  <script>
+    require.config({ paths: { vs: window.monacoBasePath } });
+  </script>
+  <script src="app.js"></script>
+</body>
+</html>

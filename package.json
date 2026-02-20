@@ -1,0 +1,32 @@
+{
+  "name": "comp-ide",
+  "productName": "CompIDE",
+  "version": "1.0.0",
+  "description": "A fast, offline-capable IDE for competitive programming (USACO, IOI, etc.) with Java and C++ support",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node tests/runner.test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/charlie2233/Easy_Java_Ide-for-competitions.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/charlie2233/Easy_Java_Ide-for-competitions/issues"
+  },
+  "homepage": "https://github.com/charlie2233/Easy_Java_Ide-for-competitions#readme",
+  "devDependencies": {
+    "@electron/rebuild": "^4.0.3",
+    "electron": "^40.6.0"
+  },
+  "dependencies": {
+    "electron-store": "^11.0.2",
+    "monaco-editor": "^0.55.1",
+    "split.js": "^1.6.5"
+  }
+}

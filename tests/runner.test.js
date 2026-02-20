@@ -1,0 +1,181 @@
+'use strict';
+
+/**
+ * Tests for the code runner (Java, C++, Python) and test runner.
+ * Run with: node tests/runner.test.js
+ */
+
+const { runCode } = require('../src/main/runner');
+const { runTestCases } = require('../src/main/test-runner');
+const { detectBundles } = require('../src/main/bundle-manager');
+
+let passed = 0;
+let failed = 0;
+const tests = [];
+
+function test(name, fn) { tests.push({ name, fn }); }
+
+function assert(condition, msg) {
+  if (!condition) throw new Error(msg || 'Assertion failed');
+}
+function assertEqual(a, b, msg) {
+  if (a !== b) throw new Error(`${msg || 'Not equal'}: expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`);
+}
+
+// ─── Java Tests ─────────────────────────────────────────────────────────────
+test('Java: Hello World', async () => {
+  const result = await runCode({
+    language: 'java',
+    code: 'public class Main { public static void main(String[] args) { System.out.println("Hello, World!"); } }',
+    input: '',
+  });
+  assert(!result.compileError, 'Should not have compile error');
+  assertEqual(result.exitCode, 0, 'Exit code');
+  assert(result.stdout.trim() === 'Hello, World!', `Expected "Hello, World!", got "${result.stdout.trim()}"`);
+});
+
+test('Java: Reading input', async () => {
+  const code = [
+    'import java.util.Scanner;',
+    'public class Main {',
+    '  public static void main(String[] args) {',
+    '    Scanner sc = new Scanner(System.in);',
+    '    int a = sc.nextInt(), b = sc.nextInt();',
+    '    System.out.println(a + b);',
+    '  }',
+    '}',
+  ].join('\n');
+  const result = await runCode({ language: 'java', code, input: '3 7' });
+  assert(!result.compileError, 'Should compile');
+  assertEqual(result.stdout.trim(), '10', 'Sum output');
+});
+
+test('Java: Compile error is detected', async () => {
+  const result = await runCode({
+    language: 'java',
+    code: 'public class Main { public static void main() { int x = ; } }',
+    input: '',
+  });
+  assert(result.compileError, 'Should detect compile error');
+  assert(result.exitCode !== 0, 'Non-zero exit code');
+});
+
+test('Java: Time limit detected', async () => {
+  const code = 'public class Main { public static void main(String[] args) throws Exception { while(true){} } }';
+  const result = await runCode({ language: 'java', code, input: '', timeLimitMs: 800 });
+  assert(result.timedOut, 'Should time out');
+});
+
+// ─── C++ Tests ───────────────────────────────────────────────────────────────
+test('C++: Hello World', async () => {
+  const code = '#include<iostream>\nusing namespace std;\nint main(){cout<<"Hello, C++!"<<endl;return 0;}';
+  const result = await runCode({ language: 'cpp', code, input: '' });
+  assert(!result.compileError, 'Should compile');
+  assertEqual(result.stdout.trim(), 'Hello, C++!', 'C++ output');
+});
+
+test('C++: Reading input', async () => {
+  const code = '#include<iostream>\nusing namespace std;\nint main(){int a,b;cin>>a>>b;cout<<a+b<<endl;}';
+  const result = await runCode({ language: 'cpp', code, input: '10 20' });
+  assertEqual(result.stdout.trim(), '30', 'C++ sum');
+});
+
+test('C++: Compile error detected', async () => {
+  const result = await runCode({ language: 'cpp', code: 'int main(){int x=;return 0;}', input: '' });
+  assert(result.compileError, 'Should detect compile error');
+});
+
+// ─── Python Tests ─────────────────────────────────────────────────────────────
+test('Python: Hello World', async () => {
+  const result = await runCode({ language: 'python', code: 'print("Hello, Python!")', input: '' });
+  assert(!result.compileError, 'No compile error');
+  assertEqual(result.stdout.trim(), 'Hello, Python!', 'Python output');
+});
+
+test('Python: Reading input', async () => {
+  const code = 'a, b = map(int, input().split())\nprint(a + b)';
+  const result = await runCode({ language: 'python', code, input: '5 15' });
+  assertEqual(result.stdout.trim(), '20', 'Python sum');
+});
+
+// ─── Test Runner Tests ────────────────────────────────────────────────────────
+test('Test runner: all pass', async () => {
+  const code = '#include<iostream>\nusing namespace std;\nint main(){int a,b;cin>>a>>b;cout<<a+b;}';
+  const results = await runTestCases({
+    language: 'cpp',
+    code,
+    testCases: [
+      { name: 'TC1', input: '1 2', expectedOutput: '3' },
+      { name: 'TC2', input: '10 20', expectedOutput: '30' },
+    ],
+  });
+  assertEqual(results.length, 2, 'Should have 2 results');
+  assert(results[0].passed, 'TC1 should pass');
+  assert(results[1].passed, 'TC2 should pass');
+});
+
+test('Test runner: detect wrong answer', async () => {
+  const code = '#include<iostream>\nusing namespace std;\nint main(){int a,b;cin>>a>>b;cout<<a-b;}';
+  const results = await runTestCases({
+    language: 'cpp',
+    code,
+    testCases: [{ name: 'TC1', input: '5 3', expectedOutput: '8' }],
+  });
+  assert(!results[0].passed, 'Should detect wrong answer');
+});
+
+test('Test runner: output normalization', async () => {
+  const code = '#include<iostream>\nusing namespace std;\nint main(){cout<<"hello   "<<endl;}';
+  const results = await runTestCases({
+    language: 'cpp',
+    code,
+    testCases: [{ name: 'TC1', input: '', expectedOutput: 'hello' }],
+  });
+  assert(results[0].passed, 'Should pass despite trailing spaces');
+});
+
+// ─── Bundle Manager Tests ─────────────────────────────────────────────────────
+test('detectBundles returns correct structure', async () => {
+  const result = await detectBundles();
+  assert(typeof result.java === 'object', 'java key exists');
+  assert(typeof result.cpp === 'object', 'cpp key exists');
+  assert(typeof result.python === 'object', 'python key exists');
+  assert(typeof result.java.available === 'boolean', 'java.available is boolean');
+  assert(typeof result.java.status === 'string', 'java.status is string');
+  assert(result.java.available, 'Java should be available (status: ' + result.java.status + ')');
+  assert(result.cpp.available, 'C++ should be available (status: ' + result.cpp.status + ')');
+});
+
+// ─── Run All ──────────────────────────────────────────────────────────────────
+async function main() {
+  const groups = [
+    { name: 'Java Runner', prefix: 'Java' },
+    { name: 'C++ Runner', prefix: 'C++' },
+    { name: 'Python Runner', prefix: 'Python' },
+    { name: 'Test Runner', prefix: 'Test runner' },
+    { name: 'Bundle Manager', prefix: 'detectBundles' },
+  ];
+
+  for (const group of groups) {
+    const groupTests = tests.filter(t => t.name.startsWith(group.prefix));
+    if (groupTests.length === 0) continue;
+    console.log(`\n${group.name}:`);
+    for (const { name, fn } of groupTests) {
+      try {
+        await fn();
+        console.log(`  ✓ ${name}`);
+        passed++;
+      } catch (err) {
+        console.error(`  ✗ ${name}`);
+        console.error(`    ${err.message}`);
+        failed++;
+      }
+    }
+  }
+
+  console.log('\n' + '─'.repeat(40));
+  console.log(`Results: ${passed} passed, ${failed} failed`);
+  if (failed > 0) process.exit(1);
+}
+
+main().catch(err => { console.error(err); process.exit(1); });
