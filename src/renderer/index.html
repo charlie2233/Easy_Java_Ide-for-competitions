@@ -250,6 +250,45 @@
     </div>
   </div>
 
+  <!-- ── Setup Modal ───────────────────────────────────────── -->
+  <div id="setup-overlay" class="modal-overlay hidden">
+    <div class="setup-modal">
+      <div class="setup-header">
+        <h1>Welcome to CompIDE</h1>
+        <p>Let's get your environment set up for competitive programming.</p>
+      </div>
+      <div class="setup-body">
+        <div class="setup-step">
+          <h3>Choose your theme</h3>
+          <div class="theme-options">
+            <div class="theme-card selected" data-theme="dark" onclick="selectSetupTheme('dark')">
+              <div class="theme-preview" style="background: #0d1117"></div>
+              <span>Dark Modern</span>
+            </div>
+            <div class="theme-card" data-theme="light" onclick="selectSetupTheme('light')">
+              <div class="theme-preview" style="background: #ffffff; border: 1px solid #e1e4e8;"></div>
+              <span>Light Crisp</span>
+            </div>
+          </div>
+        </div>
+        <div class="setup-step">
+          <h3>Preferred Language</h3>
+          <select id="setup-lang-select" onchange="updateSetupLang()">
+            <option value="java">Java (JDK 17+)</option>
+            <option value="cpp">C++ (G++/Clang)</option>
+            <option value="python">Python 3</option>
+          </select>
+          <div id="setup-lang-status" style="margin-top: 8px; font-size: 12px; color: var(--text-secondary);">
+            Checking...
+          </div>
+        </div>
+      </div>
+      <div class="setup-footer">
+        <button class="setup-btn-next" onclick="finishSetup()">Get Started →</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Settings Modal ────────────────────────────────────── -->
   <div id="settings-overlay" class="modal-overlay hidden">
     <div id="settings-modal" class="modal">

@@ -211,9 +211,114 @@ require(['vs/editor/editor.main'], async function () {
   refreshGitStatus();
   refreshProjectTree();
   loadRecentFiles();
-  loadTestCasesFromStorage();
-  renderImportedExtensions();
+  // Check for first run
+  if (!settings.setupComplete) {
+    showSetupModal();
+  }
 });
+
+// ─── Setup / Onboarding ───────────────────────────────────────────────────────
+function showSetupModal() {
+  document.getElementById('setup-overlay').classList.remove('hidden');
+  updateSetupLang(); // Trigger check for default lang
+}
+
+window.selectSetupTheme = function(theme) {
+  document.querySelectorAll('.theme-card').forEach(c => c.classList.remove('selected'));
+  document.querySelector(`.theme-card[data-theme="${theme}"]`).classList.add('selected');
+  applyTheme(theme); // Live preview
+};
+
+window.updateSetupLang = async function() {
+  const lang = document.getElementById('setup-lang-select').value;
+  const statusEl = document.getElementById('setup-lang-status');
+  statusEl.textContent = 'Checking availability...';
+  statusEl.style.color = 'var(--text-secondary)';
+  
+  // Quick check
+  const bundles = await window.electronAPI.detectBundles();
+  const info = bundles[lang];
+  
+  if (info && info.available) {
+    statusEl.textContent = `✓ Found: ${info.version || 'Ready'}`;
+    statusEl.style.color = 'var(--success)';
+  } else {
+    statusEl.textContent = `✗ Not found. You can install it later.`;
+    statusEl.style.color = 'var(--warning)';
+  }
+};
+
+window.finishSetup = async function() {
+  const theme = document.querySelector('.theme-card.selected').dataset.theme;
+  const lang = document.getElementById('setup-lang-select').value;
+  
+  settings.theme = theme;
+  settings.language = lang;
+  settings.setupComplete = true;
+  
+  await window.electronAPI.setSetting('theme', theme);
+  await window.electronAPI.setSetting('language', lang);
+  await window.electronAPI.setSetting('setupComplete', true);
+  
+  document.getElementById('setup-overlay').classList.add('hidden');
+  
+  // Apply changes
+  applyTheme(theme);
+  loadInitialContent();
+};
+
+// ─── Setup / Onboarding ───────────────────────────────────────────────────────
+function showSetupModal() {
+  document.getElementById('setup-overlay').classList.remove('hidden');
+  updateSetupLang(); // Trigger check for default lang
+}
+
+window.selectSetupTheme = function(theme) {
+  document.querySelectorAll('.theme-card').forEach(c => c.classList.remove('selected'));
+  document.querySelector(`.theme-card[data-theme="${theme}"]`).classList.add('selected');
+  applyTheme(theme); // Live preview
+};
+
+window.updateSetupLang = async function() {
+  const lang = document.getElementById('setup-lang-select').value;
+  const statusEl = document.getElementById('setup-lang-status');
+  statusEl.textContent = 'Checking availability...';
+  statusEl.style.color = 'var(--text-secondary)';
+  
+  // Quick check
+  let bundles = bundlesState;
+  if (!bundles) {
+    bundles = await window.electronAPI.detectBundles();
+  }
+  const info = bundles[lang];
+  
+  if (info && info.available) {
+    statusEl.textContent = `✓ Found: ${info.version || 'Ready'}`;
+    statusEl.style.color = 'var(--success)';
+  } else {
+    statusEl.textContent = `✗ Not found. You can install it later.`;
+    statusEl.style.color = 'var(--warning)';
+  }
+};
+
+window.finishSetup = async function() {
+  const theme = document.querySelector('.theme-card.selected').dataset.theme;
+  const lang = document.getElementById('setup-lang-select').value;
+  
+  settings.theme = theme;
+  settings.language = lang;
+  settings.setupComplete = true;
+  
+  await window.electronAPI.setSetting('theme', theme);
+  await window.electronAPI.setSetting('language', lang);
+  await window.electronAPI.setSetting('setupComplete', true);
+  
+  document.getElementById('setup-overlay').classList.add('hidden');
+  
+  // Apply changes
+  applyTheme(theme);
+  loadInitialContent();
+};
 
 // ─── Monaco Editor ────────────────────────────────────────────────────────────
 function initEditor() {
@@ -1115,6 +1220,9 @@ function loadTestCasesFromStorage() {
 
 // ─── Bundle Status ────────────────────────────────────────────────────────────
 async function updateBundleStatus() {
+  const container = document.getElementById('bundle-status');
+  if (!container) return; // Guard against missing element
+  
   let bundles;
   try {
     bundles = await window.electronAPI.detectBundles({
@@ -1137,6 +1245,10 @@ async function updateBundleStatus() {
     if (!el) continue;
     const span = el.querySelector('span');
     const meta = el.querySelector('.bundle-meta');
+    
+    // Clear previous
+    if (meta) meta.innerHTML = '';
+
     if (b.available) {
       span.className = 'ok';
       span.textContent = '✓ ready';
@@ -1151,19 +1263,23 @@ async function updateBundleStatus() {
       span.className = 'fail';
       span.textContent = '✗ missing';
       if (meta) {
-        meta.innerHTML = '';
-        const link = document.createElement('span');
+        const link = document.createElement('a');
         link.className = 'bundle-download-link';
         link.textContent = 'Download';
-        link.onclick = () => {
+        // Prevent default link behavior, use electronAPI
+        link.href = '#';
+        link.onclick = (e) => {
+          e.preventDefault();
           const urls = {
             java: 'https://adoptium.net/',
-            cpp: process.platform === 'win32' ? 'https://www.msys2.org/' : 'https://developer.apple.com/xcode/resources/',
+            cpp: 'https://code.visualstudio.com/docs/cpp/config-mingw', // Generic helpful link
             python: 'https://www.python.org/downloads/'
           };
+          if (process.platform === 'darwin' && lang === 'cpp') urls.cpp = 'https://developer.apple.com/xcode/resources/';
+          
           if (urls[lang]) window.electronAPI.openExternal(urls[lang]);
         };
-        meta.appendChild(document.createTextNode(b.installHint || 'Not installed. '));
+        meta.appendChild(document.createTextNode((b.installHint || 'Not installed. ') + ' '));
         meta.appendChild(link);
       }
     }

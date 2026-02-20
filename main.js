@@ -36,6 +36,7 @@ async function getStore() {
         submitCodeforcesContest: '',
         submitCodeforcesProblem: 'A',
         submitUsacoCpid: '',
+        setupComplete: false,
         vscodeImports: [],
         showLineNumbers: true,
         wordWrap: false,
