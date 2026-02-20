@@ -1,7 +1,7 @@
 'use strict';
 
 const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
-const { execFile } = require('child_process');
+const { execFile, spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -44,6 +44,7 @@ async function getStore() {
         formatOnSave: false,
         timeLimitMs: 5000,
         memoryLimitMb: 256,
+        sidebarCollapsed: false,
       },
     });
   }
@@ -124,6 +125,7 @@ function buildMenu() {
       label: 'View',
       submenu: [
         { label: 'Toggle Theme', click: () => mainWindow.webContents.send('menu:toggle-theme') },
+        { label: 'Toggle Sidebar', accelerator: 'CmdOrCtrl+B', click: () => mainWindow.webContents.send('menu:toggle-sidebar') },
         { label: 'Toggle Terminal', accelerator: 'CmdOrCtrl+`', click: () => mainWindow.webContents.send('menu:toggle-terminal') },
         { label: 'Toggle Test Panel', accelerator: 'CmdOrCtrl+Shift+T', click: () => mainWindow.webContents.send('menu:toggle-tests') },
         { type: 'separator' },
@@ -230,6 +232,17 @@ ipcMain.handle('file:open-folder-dialog', async () => {
   return result;
 });
 
+ipcMain.handle('file:open-sample-files-dialog', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile', 'multiSelections'],
+    filters: [
+      { name: 'Sample Files', extensions: ['in', 'out', 'txt', 'ans', 'input', 'output'] },
+      { name: 'All Files', extensions: ['*'] },
+    ],
+  });
+  return result;
+});
+
 ipcMain.handle('file:open-vsix-dialog', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile'],
@@ -266,6 +279,64 @@ ipcMain.handle('env:info', () => ({
 
 ipcMain.handle('shell:open-path', (_e, p) => shell.openPath(p));
 ipcMain.handle('shell:open-external', (_e, url) => shell.openExternal(url));
+
+function spawnDetached(command, args, options = {}) {
+  try {
+    const child = spawn(command, args, { detached: true, stdio: 'ignore', ...options });
+    child.unref();
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+async function openSystemTerminal(targetPath) {
+  const cwd = getWorkspaceDir(targetPath);
+
+  if (process.platform === 'darwin') {
+    return new Promise((resolve) => {
+      execFile('open', ['-a', 'Terminal', cwd], (err) => {
+        if (err) {
+          resolve({ ok: false, error: err.message, cwd });
+          return;
+        }
+        resolve({ ok: true, cwd });
+      });
+    });
+  }
+
+  if (process.platform === 'win32') {
+    const result = spawnDetached('cmd.exe', ['/c', 'start', 'CompIDE Terminal', 'cmd.exe', '/K', `cd /d "${cwd}"`], {
+      cwd,
+      shell: true,
+    });
+    return { ...result, cwd };
+  }
+
+  const linuxCandidates = [
+    ['x-terminal-emulator', ['--working-directory', cwd]],
+    ['gnome-terminal', ['--working-directory', cwd]],
+    ['konsole', ['--workdir', cwd]],
+    ['xfce4-terminal', ['--working-directory', cwd]],
+    ['alacritty', ['--working-directory', cwd]],
+    ['kitty', ['--directory', cwd]],
+  ];
+
+  for (const [cmd, args] of linuxCandidates) {
+    const result = spawnDetached(cmd, args, { cwd });
+    if (result.ok) return { ok: true, cwd };
+  }
+
+  return {
+    ok: false,
+    cwd,
+    error: 'No supported terminal executable found',
+  };
+}
+
+ipcMain.handle('shell:open-terminal', async (_e, targetPath) => {
+  return openSystemTerminal(targetPath);
+});
 
 // ─── Code Execution ──────────────────────────────────────────────────────────
 const { runCode, killProcess } = require('./src/main/runner');

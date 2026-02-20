@@ -179,6 +179,228 @@ int main() {
         else cout << seg.query(a, b) << "\\n";
     }
 }`,
+
+  'python-usaco': `import sys
+
+
+def solve() -> None:
+    data = sys.stdin.buffer.read().split()
+    if not data:
+        return
+
+    # Example parse:
+    # n = int(data[0])
+    # ...
+    print("ready")
+
+
+if __name__ == "__main__":
+    solve()
+`,
+
+  'python-fastio': `import sys
+
+
+def ints():
+    return map(int, sys.stdin.buffer.readline().split())
+
+
+def solve() -> None:
+    n = int(sys.stdin.buffer.readline())
+    out = []
+    for _ in range(n):
+        x = int(sys.stdin.buffer.readline())
+        out.append(str(x))
+    sys.stdout.write("\\n".join(out))
+
+
+if __name__ == "__main__":
+    solve()
+`,
+
+  'python-dp': `import sys
+
+
+def solve() -> None:
+    n = int(sys.stdin.buffer.readline())
+    inf = 10 ** 18
+    dp = [inf] * (n + 1)
+    dp[0] = 0
+
+    for i in range(1, n + 1):
+        # dp[i] = min/max transition from earlier states
+        pass
+
+    print(dp[n])
+
+
+if __name__ == "__main__":
+    solve()
+`,
+
+  'python-graph': `from collections import deque
+import sys
+
+
+def solve() -> None:
+    n, m = map(int, sys.stdin.buffer.readline().split())
+    graph = [[] for _ in range(n + 1)]
+    for _ in range(m):
+        u, v = map(int, sys.stdin.buffer.readline().split())
+        graph[u].append(v)
+        graph[v].append(u)
+
+    dist = [-1] * (n + 1)
+    q = deque([1])
+    dist[1] = 0
+
+    while q:
+        u = q.popleft()
+        for v in graph[u]:
+            if dist[v] == -1:
+                dist[v] = dist[u] + 1
+                q.append(v)
+
+    print(dist[n])
+
+
+if __name__ == "__main__":
+    solve()
+`,
+
+  'java-binary-search': `import java.io.*;
+import java.util.*;
+
+public class Main {
+    static boolean good(long x) {
+        // TODO: monotonic check
+        return x >= 0;
+    }
+
+    public static void main(String[] args) throws Exception {
+        BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+        long lo = 0, hi = (long) 1e18;
+        while (lo < hi) {
+            long mid = lo + (hi - lo) / 2;
+            if (good(mid)) hi = mid;
+            else lo = mid + 1;
+        }
+        System.out.println(lo);
+    }
+}
+`,
+
+  'cpp-binary-search': `#include <bits/stdc++.h>
+using namespace std;
+
+bool good(long long x) {
+    // TODO: monotonic check
+    return x >= 0;
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    long long lo = 0, hi = (long long)1e18;
+    while (lo < hi) {
+        long long mid = lo + (hi - lo) / 2;
+        if (good(mid)) hi = mid;
+        else lo = mid + 1;
+    }
+    cout << lo << "\\n";
+    return 0;
+}
+`,
+
+  'java-dsu': `import java.io.*;
+import java.util.*;
+
+public class Main {
+    static class DSU {
+        int[] p, sz;
+
+        DSU(int n) {
+            p = new int[n + 1];
+            sz = new int[n + 1];
+            for (int i = 1; i <= n; i++) {
+                p[i] = i;
+                sz[i] = 1;
+            }
+        }
+
+        int find(int x) {
+            if (p[x] == x) return x;
+            return p[x] = find(p[x]);
+        }
+
+        boolean unite(int a, int b) {
+            a = find(a);
+            b = find(b);
+            if (a == b) return false;
+            if (sz[a] < sz[b]) {
+                int t = a; a = b; b = t;
+            }
+            p[b] = a;
+            sz[a] += sz[b];
+            return true;
+        }
+    }
+
+    public static void main(String[] args) throws Exception {
+        BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+        StringTokenizer st = new StringTokenizer(br.readLine());
+        int n = Integer.parseInt(st.nextToken());
+        int m = Integer.parseInt(st.nextToken());
+        DSU dsu = new DSU(n);
+
+        for (int i = 0; i < m; i++) {
+            st = new StringTokenizer(br.readLine());
+            int u = Integer.parseInt(st.nextToken());
+            int v = Integer.parseInt(st.nextToken());
+            dsu.unite(u, v);
+        }
+    }
+}
+`,
+
+  'cpp-dsu': `#include <bits/stdc++.h>
+using namespace std;
+
+struct DSU {
+    vector<int> p, sz;
+    DSU(int n) : p(n + 1), sz(n + 1, 1) {
+        iota(p.begin(), p.end(), 0);
+    }
+    int find(int x) {
+        if (p[x] == x) return x;
+        return p[x] = find(p[x]);
+    }
+    bool unite(int a, int b) {
+        a = find(a);
+        b = find(b);
+        if (a == b) return false;
+        if (sz[a] < sz[b]) swap(a, b);
+        p[b] = a;
+        sz[a] += sz[b];
+        return true;
+    }
+};
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int n, m;
+    cin >> n >> m;
+    DSU dsu(n);
+    while (m--) {
+        int u, v;
+        cin >> u >> v;
+        dsu.unite(u, v);
+    }
+    return 0;
+}`,
 };
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -196,8 +418,20 @@ let snippetProviders = [];
 let workspaceRoot = null;
 const expandedProjectDirs = new Set();
 
+function renderBootError(message) {
+  const existing = document.getElementById('boot-error');
+  if (existing) return;
+  const el = document.createElement('div');
+  el.id = 'boot-error';
+  el.textContent = message;
+  document.body.appendChild(el);
+}
+
 // ─── Boot ─────────────────────────────────────────────────────────────────────
-require(['vs/editor/editor.main'], async function () {
+if (!window.require || !window.require.config) {
+  renderBootError('Editor assets failed to load. Reinstall or rebuild the app package.');
+} else {
+window.require(['vs/editor/editor.main'], async function () {
   settings = await window.electronAPI.getSettings();
   hydrateSnippetImportsFromStorage();
   workspaceRoot = settings.workspaceRoot || null;
@@ -206,6 +440,10 @@ require(['vs/editor/editor.main'], async function () {
   registerSnippetProviders();
   loadInitialContent();
   wireUI();
+  initializeBrandingAssets();
+  await setSidebarCollapsed(settings.sidebarCollapsed === true, false);
+  loadCustomInputFromStorage();
+  loadTestCasesFromStorage();
   initSubmissionPanel();
   updateBundleStatus();
   refreshGitStatus();
@@ -216,6 +454,7 @@ require(['vs/editor/editor.main'], async function () {
     showSetupModal();
   }
 });
+}
 
 // ─── Setup / Onboarding ───────────────────────────────────────────────────────
 function showSetupModal() {
@@ -339,11 +578,17 @@ function initEditor() {
     fontLigatures: true,
     renderWhitespace: 'selection',
     smoothScrolling: true,
+    cursorStyle: 'line',
+    cursorWidth: 2,
+    cursorBlinking: 'phase',
     cursorSmoothCaretAnimation: 'on',
     bracketPairColorization: { enabled: true },
     formatOnType: true,
     suggestOnTriggerCharacters: true,
     quickSuggestions: { other: true, comments: false, strings: false },
+    lineHeight: 21,
+    letterSpacing: 0.2,
+    renderLineHighlight: 'line',
     padding: { top: 12, bottom: 12 }, // Add some breathing room
   });
 
@@ -352,6 +597,7 @@ function initEditor() {
     isDirty = true;
     updateTitle();
     toggleWelcomeScreen(); // Let function decide based on content
+    markAllTestCasesStale('Code changed. Re-run tests.');
   });
 
   // Track cursor position for status bar
@@ -407,7 +653,13 @@ function loadInitialContent() {
   // But our "default" is a template. Let's start with the template to be helpful.
   // The user can clear it to see the welcome screen if they want.
   
-  const templateKey = lang === 'java' ? 'java-usaco' : lang === 'cpp' ? 'cpp-usaco' : null;
+  const templateKey = lang === 'java'
+    ? 'java-usaco'
+    : lang === 'cpp'
+      ? 'cpp-usaco'
+      : lang === 'python'
+        ? 'python-usaco'
+        : null;
   if (templateKey) {
     editor.setValue(TEMPLATES[templateKey]);
     // It's a template, so technically not dirty yet, but it has content.
@@ -424,24 +676,39 @@ function loadInitialContent() {
 
 // ─── UI Wiring ────────────────────────────────────────────────────────────────
 function wireUI() {
+  const bind = (id, event, handler, optional = false) => {
+    const el = document.getElementById(id);
+    if (!el) {
+      const message = `Missing UI element: #${id}`;
+      console.warn(message);
+      if (!optional) {
+        renderBootError(`UI initialization failed: ${message}. Rebuild/reinstall the app package.`);
+      }
+      return null;
+    }
+    el.addEventListener(event, handler);
+    return el;
+  };
+
   // Titlebar buttons
-  document.getElementById('btn-run').addEventListener('click', runCode);
-  document.getElementById('btn-run-input').addEventListener('click', () => { switchTab('input'); runCodeWithInput(); });
-  document.getElementById('btn-run-tests').addEventListener('click', runAllTests);
-  document.getElementById('btn-stop').addEventListener('click', stopRun);
-  document.getElementById('btn-settings').addEventListener('click', openSettings);
+  bind('btn-run', 'click', runCode);
+  bind('btn-run-input', 'click', () => { switchTab('input'); runCodeWithInput(); });
+  bind('btn-run-tests', 'click', runAllTests);
+  bind('btn-stop', 'click', stopRun);
+  bind('btn-toggle-sidebar', 'click', () => toggleSidebar(), true);
+  bind('btn-settings', 'click', openSettings);
 
   // Editor toolbar
-  document.getElementById('btn-open').addEventListener('click', openFile);
-  document.getElementById('btn-save').addEventListener('click', saveFile);
-  document.getElementById('btn-format').addEventListener('click', formatCode);
+  bind('btn-open', 'click', openFile);
+  bind('btn-save', 'click', saveFile);
+  bind('btn-format', 'click', formatCode);
 
   // Welcome Screen
-  document.getElementById('btn-welcome-new').addEventListener('click', newFile);
-  document.getElementById('btn-welcome-open').addEventListener('click', openFile);
+  bind('btn-welcome-new', 'click', newFile, true);
+  bind('btn-welcome-open', 'click', openFile, true);
 
   // Language selector
-  document.getElementById('lang-select').addEventListener('change', (e) => {
+  bind('lang-select', 'change', (e) => {
     const lang = e.target.value;
     settings.language = lang;
     window.electronAPI.setSetting('language', lang);
@@ -458,12 +725,10 @@ function wireUI() {
         if (!isDirty || confirm('Replace current code with template?')) {
           editor.setValue(TEMPLATES[key]);
           isDirty = false;
-          // Set language based on template
-          if (key.startsWith('java')) {
-            document.getElementById('lang-select').value = 'java';
-            document.getElementById('lang-select').dispatchEvent(new Event('change'));
-          } else if (key.startsWith('cpp')) {
-            document.getElementById('lang-select').value = 'cpp';
+          // Set language based on template key prefix.
+          const langPrefix = (key || '').split('-')[0];
+          if (['java', 'cpp', 'python'].includes(langPrefix)) {
+            document.getElementById('lang-select').value = langPrefix;
             document.getElementById('lang-select').dispatchEvent(new Event('change'));
           }
         }
@@ -477,42 +742,41 @@ function wireUI() {
   });
 
   // Output toolbar
-  document.getElementById('btn-clear-output').addEventListener('click', () => {
+  bind('btn-clear-output', 'click', () => {
     document.getElementById('output-area').textContent = '';
     setStatus('idle', 'Ready');
     document.getElementById('run-time').textContent = '';
   });
-  document.getElementById('btn-copy-output').addEventListener('click', () => {
+  bind('btn-copy-output', 'click', () => {
     const text = document.getElementById('output-area').textContent;
     navigator.clipboard.writeText(text);
   });
 
   // Input toolbar
-  document.getElementById('btn-clear-input').addEventListener('click', () => {
+  bind('btn-clear-input', 'click', () => {
     document.getElementById('input-area').value = '';
+    saveCustomInputToStorage();
+  });
+  bind('input-area', 'input', () => {
+    saveCustomInputToStorage();
   });
 
   // Test cases
-  document.getElementById('btn-add-test').addEventListener('click', () => addTestCase());
-  document.getElementById('btn-paste-test').addEventListener('click', pasteTestCase);
-  document.getElementById('btn-fetch-problem').addEventListener('click', fetchProblemSamplesIntoTests);
-  document.getElementById('btn-run-all-tests').addEventListener('click', runAllTests);
-  document.getElementById('problem-url-input').addEventListener('keydown', (e) => {
+  bind('btn-add-test', 'click', () => addTestCase());
+  bind('btn-import-test-files', 'click', importTestFilesAsCases);
+  bind('btn-paste-test', 'click', pasteTestCase);
+  bind('btn-fetch-problem', 'click', fetchProblemSamplesIntoTests);
+  bind('btn-run-all-tests', 'click', runAllTests);
+  bind('problem-url-input', 'keydown', (e) => {
     if (e.key === 'Enter') fetchProblemSamplesIntoTests();
   });
 
   // Workspace / bundle / extension controls
-  const openProjectBtn = document.getElementById('btn-open-project-folder');
-  if (openProjectBtn) openProjectBtn.addEventListener('click', chooseProjectFolder);
-
-  const refreshProjectBtn = document.getElementById('btn-refresh-project');
-  if (refreshProjectBtn) refreshProjectBtn.addEventListener('click', refreshProjectTree);
-
-  const refreshBundlesBtn = document.getElementById('btn-refresh-bundles');
-  if (refreshBundlesBtn) refreshBundlesBtn.addEventListener('click', updateBundleStatus);
-
-  const refreshRepoBtn = document.getElementById('btn-refresh-repo');
-  if (refreshRepoBtn) refreshRepoBtn.addEventListener('click', refreshGitStatus);
+  bind('btn-open-project-folder', 'click', chooseProjectFolder, true);
+  bind('btn-refresh-project', 'click', refreshProjectTree, true);
+  bind('btn-refresh-bundles', 'click', updateBundleStatus, true);
+  bind('btn-refresh-repo', 'click', refreshGitStatus, true);
+  bind('btn-open-terminal', 'click', openTerminalAtWorkspace, true);
 
   const openRemoteBtn = document.getElementById('btn-open-remote');
   if (openRemoteBtn) {
@@ -522,27 +786,28 @@ function wireUI() {
     });
   }
 
-  const importExtBtn = document.getElementById('btn-import-vscode-ext');
-  if (importExtBtn) importExtBtn.addEventListener('click', importVSCodeExtension);
-  const importVsixBtn = document.getElementById('btn-import-vscode-vsix');
-  if (importVsixBtn) importVsixBtn.addEventListener('click', importVSIXExtension);
+  bind('btn-import-vscode-ext', 'click', importVSCodeExtension, true);
+  bind('btn-import-vscode-vsix', 'click', importVSIXExtension, true);
 
   // Submission helpers
-  document.getElementById('submit-platform').addEventListener('change', saveSubmissionSettingsFromUI);
-  document.getElementById('submit-cf-contest').addEventListener('input', saveSubmissionSettingsFromUI);
-  document.getElementById('submit-cf-problem').addEventListener('input', saveSubmissionSettingsFromUI);
-  document.getElementById('submit-usaco-cpid').addEventListener('input', saveSubmissionSettingsFromUI);
-  document.getElementById('btn-submit-open-problem').addEventListener('click', () => openSubmissionTarget('problemUrl'));
-  document.getElementById('btn-submit-open-submit').addEventListener('click', () => openSubmissionTarget('submitUrl'));
-  document.getElementById('btn-submit-export').addEventListener('click', exportSubmissionFile);
+  bind('submit-platform', 'change', saveSubmissionSettingsFromUI, true);
+  bind('submit-cf-contest', 'input', saveSubmissionSettingsFromUI, true);
+  bind('submit-cf-problem', 'input', saveSubmissionSettingsFromUI, true);
+  bind('submit-usaco-cpid', 'input', saveSubmissionSettingsFromUI, true);
+  bind('btn-submit-open-problem', 'click', () => openSubmissionTarget('problemUrl'), true);
+  bind('btn-submit-open-submit', 'click', () => openSubmissionTarget('submitUrl'), true);
+  bind('btn-submit-export', 'click', exportSubmissionFile, true);
 
   // Settings modal
-  document.getElementById('btn-settings-close').addEventListener('click', closeSettings);
-  document.getElementById('btn-settings-cancel').addEventListener('click', closeSettings);
-  document.getElementById('btn-settings-save').addEventListener('click', saveSettings);
-  document.getElementById('settings-overlay').addEventListener('click', (e) => {
-    if (e.target === document.getElementById('settings-overlay')) closeSettings();
-  });
+  bind('btn-settings-close', 'click', closeSettings, true);
+  bind('btn-settings-cancel', 'click', closeSettings, true);
+  bind('btn-settings-save', 'click', saveSettings, true);
+  const settingsOverlay = document.getElementById('settings-overlay');
+  if (settingsOverlay) {
+    settingsOverlay.addEventListener('click', (e) => {
+      if (e.target === settingsOverlay) closeSettings();
+    });
+  }
 
   // Menu events from main process
   window.electronAPI.onMenuEvent('run', () => runCode());
@@ -551,6 +816,7 @@ function wireUI() {
   window.electronAPI.onMenuEvent('stop', () => stopRun());
   window.electronAPI.onMenuEvent('settings', () => openSettings());
   window.electronAPI.onMenuEvent('toggle-theme', () => toggleTheme());
+  window.electronAPI.onMenuEvent('toggle-sidebar', () => toggleSidebar());
   window.electronAPI.onMenuEvent('toggle-tests', () => switchTab('tests'));
   window.electronAPI.onMenuEvent('new-file', () => newFile());
   window.electronAPI.onMenuEvent('save', () => saveFile());
@@ -559,6 +825,7 @@ function wireUI() {
   window.electronAPI.onMenuEvent('import-vscode-ext', () => importVSCodeExtension());
   window.electronAPI.onMenuEvent('import-vscode-vsix', () => importVSIXExtension());
   window.electronAPI.onMenuEvent('open-project-folder', () => chooseProjectFolder());
+  window.electronAPI.onMenuEvent('toggle-terminal', () => openTerminalAtWorkspace());
 
   window.electronAPI.onFileOpened(({ filePath, content }) => {
     openFileContent(filePath, content);
@@ -639,7 +906,13 @@ function newFile() {
   // Actually, let's keep it visible until they type, OR insert a template.
   // Let's insert the default template again for convenience.
   const lang = settings.language || 'java';
-  const templateKey = lang === 'java' ? 'java-usaco' : lang === 'cpp' ? 'cpp-usaco' : null;
+  const templateKey = lang === 'java'
+    ? 'java-usaco'
+    : lang === 'cpp'
+      ? 'cpp-usaco'
+      : lang === 'python'
+        ? 'python-usaco'
+        : null;
   if (templateKey) {
     editor.setValue(TEMPLATES[templateKey]);
     toggleWelcomeScreen(false);
@@ -983,9 +1256,108 @@ function stopRun() {
 }
 
 // ─── Test Cases ────────────────────────────────────────────────────────────────
-function addTestCase(inputVal = '', expectedVal = '') {
+function saveCustomInputToStorage() {
+  try {
+    const inputValue = document.getElementById('input-area')?.value || '';
+    localStorage.setItem('comp-ide-custom-input', inputValue);
+  } catch (_) {}
+}
+
+function loadCustomInputFromStorage() {
+  try {
+    const saved = localStorage.getItem('comp-ide-custom-input');
+    if (typeof saved === 'string') {
+      const inputEl = document.getElementById('input-area');
+      if (inputEl) inputEl.value = saved;
+    }
+  } catch (_) {}
+}
+
+function parseSampleFileInfo(filePath) {
+  const baseName = basenameSafe(filePath);
+  const lower = baseName.toLowerCase();
+  const ext = (lower.split('.').pop() || '').trim();
+  const outputExts = new Set(['out', 'ans']);
+  const outputHints = /(output|expected|answer|ans|out)(?:[_\-.]?\d+)?$/i;
+
+  const role = outputExts.has(ext) || outputHints.test(lower.replace(/\.[^.]+$/, ''))
+    ? 'output'
+    : 'input';
+
+  const withoutExt = lower.replace(/\.[^.]+$/, '');
+  const key = withoutExt
+    .replace(/[_\-.]?(input|in|output|out|expected|answer|ans)$/i, '')
+    .trim() || withoutExt;
+
+  return { baseName, role, key };
+}
+
+async function importTestFilesAsCases() {
+  const result = await window.electronAPI.openSampleFilesDialog();
+  if (!result || result.canceled || !Array.isArray(result.filePaths) || !result.filePaths.length) return;
+
+  const loaded = [];
+  for (const filePath of result.filePaths) {
+    const read = await window.electronAPI.readFile(filePath);
+    if (!read.ok) continue;
+    loaded.push({ filePath, content: read.content || '', ...parseSampleFileInfo(filePath) });
+  }
+
+  if (!loaded.length) {
+    alert('No readable sample files selected.');
+    return;
+  }
+
+  const grouped = new Map();
+  loaded.forEach((item) => {
+    const groupKey = `${requirePathDirname(item.filePath)}::${item.key}`;
+    if (!grouped.has(groupKey)) grouped.set(groupKey, { inputs: [], outputs: [] });
+    const group = grouped.get(groupKey);
+    if (item.role === 'output') group.outputs.push(item);
+    else group.inputs.push(item);
+  });
+
+  const imported = [];
+  grouped.forEach((group, groupKey) => {
+    const count = Math.max(group.inputs.length, group.outputs.length);
+    if (count === 0) return;
+    const baseLabel = groupKey.split('::').pop() || 'sample';
+
+    for (let i = 0; i < count; i++) {
+      const inputFile = group.inputs[i] || null;
+      const outputFile = group.outputs[i] || null;
+      imported.push({
+        name: `${baseLabel} ${i + 1}`,
+        input: inputFile ? inputFile.content : '',
+        expectedOutput: outputFile ? outputFile.content : '',
+      });
+    }
+  });
+
+  if (!imported.length) {
+    alert('Could not infer sample input/output from the selected files.');
+    return;
+  }
+
+  const shouldReplace = testCases.length > 0
+    ? confirm(`Import ${imported.length} sample test(s). Replace existing tests? Click Cancel to append.`)
+    : true;
+
+  if (shouldReplace) {
+    testCases = [];
+    nextTestId = 1;
+    document.getElementById('test-cases-container').innerHTML = '';
+  }
+
+  imported.forEach((tc) => addTestCase(tc.input, tc.expectedOutput, tc.name));
+  saveTestCasesToStorage();
+  switchTab('tests');
+  setStatus('ok', `Imported ${imported.length} sample file test(s)`);
+}
+
+function addTestCase(inputVal = '', expectedVal = '', name = null) {
   const id = nextTestId++;
-  const tc = { id, name: `Test ${id}`, input: inputVal, expectedOutput: expectedVal, result: null };
+  const tc = { id, name: name || `Test ${id}`, input: inputVal, expectedOutput: expectedVal, result: null };
   testCases.push(tc);
   renderTestCase(tc);
   saveTestCasesToStorage();
@@ -1080,7 +1452,7 @@ function renderTestCase(tc) {
         <textarea class="test-io-text tc-expected" data-id="${tc.id}" spellcheck="false">${escHtml(tc.expectedOutput)}</textarea>
       </div>
       <div class="test-io-section" id="tc-actual-section-${tc.id}" style="display:none;">
-        <div class="test-io-label">Actual Output</div>
+        <div class="test-io-label">Actual Output <span class="test-compare-note" id="tc-compare-${tc.id}"></span></div>
         <pre class="test-io-text tc-actual" id="tc-actual-${tc.id}"></pre>
       </div>
     </div>
@@ -1089,10 +1461,12 @@ function renderTestCase(tc) {
   // Bind textarea changes
   div.querySelector(`.tc-input`).addEventListener('input', (e) => {
     tc.input = e.target.value;
+    markTestCaseStale(tc, 'Input changed. Re-run tests.');
     saveTestCasesToStorage();
   });
   div.querySelector(`.tc-expected`).addEventListener('input', (e) => {
     tc.expectedOutput = e.target.value;
+    markTestCaseStale(tc, 'Expected output changed.');
     saveTestCasesToStorage();
   });
 
@@ -1106,6 +1480,84 @@ function renderTestCase(tc) {
   container.appendChild(div);
 }
 
+function normalizeTestOutput(str) {
+  return (str || '')
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .join('\n')
+    .trimEnd();
+}
+
+function summarizeMismatch(expectedRaw, actualRaw) {
+  const expected = normalizeTestOutput(expectedRaw);
+  const actual = normalizeTestOutput(actualRaw);
+  if (expected === actual) return 'Matches expected output';
+
+  const expectedLines = expected.split('\n');
+  const actualLines = actual.split('\n');
+  const maxLines = Math.max(expectedLines.length, actualLines.length);
+
+  for (let i = 0; i < maxLines; i++) {
+    const expLine = expectedLines[i] ?? '';
+    const actLine = actualLines[i] ?? '';
+    if (expLine === actLine) continue;
+
+    const maxCols = Math.max(expLine.length, actLine.length);
+    let col = 1;
+    for (let j = 0; j < maxCols; j++) {
+      if ((expLine[j] ?? '') !== (actLine[j] ?? '')) {
+        col = j + 1;
+        break;
+      }
+    }
+    return `Mismatch at line ${i + 1}, col ${col}`;
+  }
+
+  return 'Output differs';
+}
+
+function setTestCaseCompareNote(tcId, text, isError = false) {
+  const noteEl = document.getElementById(`tc-compare-${tcId}`);
+  if (!noteEl) return;
+  noteEl.textContent = text || '';
+  noteEl.classList.toggle('error', !!isError);
+}
+
+function clearTestCaseResultUI(tcId, badgeText = 'IDLE') {
+  const badge = document.getElementById(`tc-badge-${tcId}`);
+  const timeEl = document.getElementById(`tc-time-${tcId}`);
+  const actualSection = document.getElementById(`tc-actual-section-${tcId}`);
+  const actualEl = document.getElementById(`tc-actual-${tcId}`);
+
+  if (badge) {
+    badge.className = 'test-result-badge result-idle';
+    badge.textContent = badgeText;
+  }
+  if (timeEl) timeEl.textContent = '';
+  if (actualSection) actualSection.style.display = 'none';
+  if (actualEl) {
+    actualEl.textContent = '';
+    actualEl.className = 'test-io-text tc-actual';
+  }
+  setTestCaseCompareNote(tcId, '');
+}
+
+function markTestCaseStale(tc, message = '') {
+  tc.result = null;
+  clearTestCaseResultUI(tc.id, 'EDIT');
+  const timeEl = document.getElementById(`tc-time-${tc.id}`);
+  if (timeEl) timeEl.textContent = 'needs re-run';
+  if (message) {
+    setTestCaseCompareNote(tc.id, message, true);
+  }
+}
+
+function markAllTestCasesStale(message = '') {
+  testCases.forEach((tc) => {
+    markTestCaseStale(tc, message);
+  });
+}
+
 function updateTestCaseResult(tc, result) {
   const badge = document.getElementById(`tc-badge-${tc.id}`);
   const timeEl = document.getElementById(`tc-time-${tc.id}`);
@@ -1117,13 +1569,16 @@ function updateTestCaseResult(tc, result) {
   if (result.compileError) {
     badge.className = 'test-result-badge result-fail';
     badge.textContent = 'COMPILE';
+    timeEl.textContent = '';
     actualSection.style.display = '';
     actualEl.textContent = result.stderr || 'Compile error';
     actualEl.className = 'test-io-text tc-actual test-actual-fail';
+    setTestCaseCompareNote(tc.id, 'Compilation failed', true);
   } else if (result.timedOut) {
     badge.className = 'test-result-badge result-tle';
     badge.textContent = 'TLE';
     timeEl.textContent = `>${settings.timeLimitMs || 5000}ms`;
+    setTestCaseCompareNote(tc.id, 'Time limit exceeded', true);
   } else if (result.passed) {
     badge.className = 'test-result-badge result-pass';
     badge.textContent = 'PASS';
@@ -1131,6 +1586,7 @@ function updateTestCaseResult(tc, result) {
     actualSection.style.display = '';
     actualEl.textContent = result.actualOutput;
     actualEl.className = 'test-io-text tc-actual test-actual-ok';
+    setTestCaseCompareNote(tc.id, summarizeMismatch(tc.expectedOutput || '', result.actualOutput || ''), false);
   } else {
     badge.className = 'test-result-badge result-fail';
     badge.textContent = 'FAIL';
@@ -1138,7 +1594,10 @@ function updateTestCaseResult(tc, result) {
     actualSection.style.display = '';
     actualEl.textContent = result.actualOutput;
     actualEl.className = 'test-io-text tc-actual test-actual-fail';
+    setTestCaseCompareNote(tc.id, summarizeMismatch(tc.expectedOutput || '', result.actualOutput || ''), true);
   }
+
+  tc.result = result;
 }
 
 async function runAllTests() {
@@ -1153,6 +1612,9 @@ async function runAllTests() {
     if (timeEl) timeEl.textContent = '';
     const actualSection = document.getElementById(`tc-actual-section-${tc.id}`);
     if (actualSection) actualSection.style.display = 'none';
+    const actualEl = document.getElementById(`tc-actual-${tc.id}`);
+    if (actualEl) actualEl.textContent = '';
+    setTestCaseCompareNote(tc.id, '');
   });
 
   const code = editor.getValue();
@@ -1287,8 +1749,53 @@ async function updateBundleStatus() {
 }
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
+function initializeBrandingAssets() {
+  const candidateSources = ['../../assets/icons/logo.png', '../../assets/icons/icon.png'];
+  ['welcome-logo', 'sidebar-logo'].forEach((id) => {
+    const img = document.getElementById(id);
+    if (!img) return;
+
+    let idx = 0;
+    img.src = candidateSources[idx];
+    img.onerror = () => {
+      idx += 1;
+      if (idx < candidateSources.length) {
+        img.src = candidateSources[idx];
+      } else {
+        img.style.display = 'none';
+      }
+    };
+  });
+}
+
+function applySidebarCollapsedUI(collapsed) {
+  document.body.classList.toggle('sidebar-collapsed', collapsed);
+  const toggleBtn = document.getElementById('btn-toggle-sidebar');
+  if (toggleBtn) {
+    toggleBtn.textContent = collapsed ? 'Show' : 'Hide';
+    toggleBtn.title = `${collapsed ? 'Show' : 'Hide'} sidebar (⌘B)`;
+  }
+
+  setTimeout(() => {
+    if (editor) editor.layout();
+  }, 120);
+}
+
+async function setSidebarCollapsed(collapsed, persist = true) {
+  settings.sidebarCollapsed = !!collapsed;
+  applySidebarCollapsedUI(settings.sidebarCollapsed);
+  if (persist) {
+    await window.electronAPI.setSetting('sidebarCollapsed', settings.sidebarCollapsed);
+  }
+}
+
+function toggleSidebar() {
+  void setSidebarCollapsed(!(settings.sidebarCollapsed === true));
+}
+
 function applyTheme(theme) {
-  document.body.className = `theme-${theme}`;
+  document.body.classList.remove('theme-dark', 'theme-light', 'theme-hc-black');
+  document.body.classList.add(`theme-${theme}`);
   if (editor) {
     const monacoTheme = theme === 'light' ? 'vs' : theme === 'hc-black' ? 'hc-black' : 'vs-dark';
     monaco.editor.setTheme(monacoTheme);
@@ -1392,6 +1899,18 @@ async function refreshGitStatus() {
   } catch (err) {
     console.error(err);
   }
+}
+
+async function openTerminalAtWorkspace() {
+  const targetPath = workspaceRoot || currentFilePath || gitState?.root || null;
+  const result = await window.electronAPI.openTerminal(targetPath);
+  if (!result?.ok) {
+    const detail = result?.error ? `: ${result.error}` : '.';
+    setStatus('error', `Terminal Open Failed${detail}`);
+    alert(`Failed to open terminal${detail}`);
+    return;
+  }
+  setStatus('idle', `Terminal Opened (${basenameSafe(result.cwd || targetPath || 'workspace')})`);
 }
 
 function renderGitStatus() {

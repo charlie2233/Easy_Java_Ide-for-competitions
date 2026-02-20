@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   writeFile: (filePath, content) => ipcRenderer.invoke('file:write', filePath, content),
   openFileDialog: () => ipcRenderer.invoke('file:open-dialog'),
   openFolderDialog: () => ipcRenderer.invoke('file:open-folder-dialog'),
+  openSampleFilesDialog: () => ipcRenderer.invoke('file:open-sample-files-dialog'),
   openVsixDialog: () => ipcRenderer.invoke('file:open-vsix-dialog'),
   saveFileDialog: (defaultName) => ipcRenderer.invoke('file:save-dialog', defaultName),
   getRecentFiles: () => ipcRenderer.invoke('file:recent'),
@@ -22,6 +23,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getEnvInfo: () => ipcRenderer.invoke('env:info'),
   openPath: (p) => ipcRenderer.invoke('shell:open-path', p),
   openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
+  openTerminal: (targetPath) => ipcRenderer.invoke('shell:open-terminal', targetPath),
 
   // Code execution
   runCode: (opts) => ipcRenderer.invoke('run:code', opts),

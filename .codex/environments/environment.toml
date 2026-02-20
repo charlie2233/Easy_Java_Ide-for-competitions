@@ -9,3 +9,21 @@ script = ""
 name = "Run"
 icon = "run"
 command = "npm run"
+
+[[actions]]
+name = "run"
+icon = "tool"
+command = '''
+cd /Users/hanfei/Easy_Java_Ide-for-competitions
+npm ci
+npm test
+'''
+
+[[actions]]
+name = "runner"
+icon = "tool"
+command = '''
+cd /Users/hanfei/Easy_Java_Ide-for-competitions
+npm ci
+npm run dist:mac
+'''

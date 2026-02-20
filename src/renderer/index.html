@@ -22,6 +22,7 @@
       <button id="btn-run-input" class="btn-secondary" title="Run with custom input (⌘⇧↵)">Input</button>
       <button id="btn-run-tests" class="btn-secondary" title="Run all tests (⌘T)">Tests</button>
       <button id="btn-stop" class="btn-danger" title="Stop (⌘.)">■ Stop</button>
+      <button id="btn-toggle-sidebar" class="btn-secondary" title="Toggle sidebar (⌘B)">Hide</button>
       <button id="btn-settings" class="btn-icon" title="Settings (⌘,)">⚙</button>
     </div>
   </div>
@@ -31,6 +32,14 @@
 
     <!-- Sidebar -->
     <aside id="sidebar">
+      <div class="sidebar-brand">
+        <img id="sidebar-logo" src="../../assets/icons/logo.png" alt="CompIDE Logo" />
+        <div class="sidebar-brand-meta">
+          <div class="sidebar-brand-name">CompIDE</div>
+          <div class="sidebar-brand-credit">Created by atrak.dev</div>
+        </div>
+      </div>
+
       <div class="sidebar-section">
         <div class="sidebar-title">LANGUAGE</div>
         <select id="lang-select">
@@ -45,10 +54,18 @@
         <div id="template-list">
           <button class="template-btn" data-template="java-usaco">USACO Java</button>
           <button class="template-btn" data-template="cpp-usaco">USACO C++</button>
+          <button class="template-btn" data-template="python-usaco">USACO Python</button>
           <button class="template-btn" data-template="java-dp">DP Template</button>
+          <button class="template-btn" data-template="python-dp">Python DP</button>
           <button class="template-btn" data-template="cpp-graph">Graph Template</button>
+          <button class="template-btn" data-template="python-graph">Python Graph</button>
           <button class="template-btn" data-template="java-scanner">Fast Scanner</button>
+          <button class="template-btn" data-template="python-fastio">Python Fast I/O</button>
           <button class="template-btn" data-template="cpp-segment">Segment Tree</button>
+          <button class="template-btn" data-template="java-binary-search">Java Binary Search</button>
+          <button class="template-btn" data-template="cpp-binary-search">C++ Binary Search</button>
+          <button class="template-btn" data-template="java-dsu">Java DSU</button>
+          <button class="template-btn" data-template="cpp-dsu">C++ DSU</button>
         </div>
       </div>
 
@@ -92,6 +109,7 @@
         <div class="sidebar-title">WORKSPACE</div>
         <div class="sidebar-inline-actions">
           <button class="tool-btn sidebar-mini-btn" id="btn-refresh-repo" title="Refresh git status">Sync</button>
+          <button class="tool-btn sidebar-mini-btn" id="btn-open-terminal" title="Open terminal in workspace">Terminal</button>
           <button class="tool-btn sidebar-mini-btn" id="btn-open-remote" title="Open remote URL">Remote</button>
         </div>
         <div id="repo-status">
@@ -167,10 +185,10 @@
           <!-- Welcome Screen (overlay) -->
           <div id="welcome-screen" class="hidden">
             <div class="welcome-hero">
-              <img id="welcome-logo" src="../../assets/icons/icon.png" alt="CompIDE Logo" />
+              <img id="welcome-logo" src="../../assets/icons/logo.png" alt="CompIDE Logo" />
               <h1>CompIDE</h1>
               <p>Competitive Programming Made Fast</p>
-              <p class="welcome-credit">Made by Atrak</p>
+              <p class="welcome-credit">Created by atrak.dev</p>
             </div>
             <div class="welcome-actions">
               <button id="btn-welcome-new" class="welcome-btn">New File (⌘N)</button>
@@ -211,7 +229,7 @@
           <!-- Input tab -->
           <div id="tab-input" class="io-tab-content">
             <div id="input-toolbar">
-              <span class="toolbar-label">Custom Input</span>
+              <span class="toolbar-label">Custom Input (auto-saved)</span>
               <button class="tool-btn" id="btn-clear-input" title="Clear input">Clear</button>
             </div>
             <textarea id="input-area" placeholder="Type or paste input here…" spellcheck="false"></textarea>
@@ -222,6 +240,7 @@
             <div id="tests-toolbar">
               <span class="toolbar-label">Test Cases</span>
               <button class="tool-btn" id="btn-add-test" title="Add empty test">+ Add</button>
+              <button class="tool-btn" id="btn-import-test-files" title="Import input/output files as tests">Files</button>
               <button class="tool-btn" id="btn-paste-test" title="Paste sample from clipboard (auto-detects Input/Output)">Paste</button>
               <button class="tool-btn" id="btn-fetch-problem" title="Fetch sample tests from problem URL">Fetch</button>
               <button class="tool-btn btn-primary-sm" id="btn-run-all-tests">▶ Run All</button>
@@ -381,11 +400,13 @@
   <!-- Monaco loader -->
   <script>
     // Set Monaco base path so it can load its workers from node_modules
-    window.monacoBasePath = '../../../node_modules/monaco-editor/min/vs';
+    window.monacoBasePath = '../../node_modules/monaco-editor/min/vs';
   </script>
-  <script src="../../../node_modules/monaco-editor/min/vs/loader.js"></script>
+  <script src="../../node_modules/monaco-editor/min/vs/loader.js"></script>
   <script>
-    require.config({ paths: { vs: window.monacoBasePath } });
+    if (window.require && window.require.config) {
+      window.require.config({ paths: { vs: window.monacoBasePath } });
+    }
   </script>
   <script src="app.js"></script>
 </body>
