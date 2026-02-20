@@ -273,8 +273,24 @@ body.theme-dark #status-bar { background: var(--bg-sidebar); border-top: 1px sol
 #welcome-screen.hidden { opacity: 0; pointer-events: none; }
 
 .welcome-hero { text-align: center; }
+.welcome-hero #welcome-logo {
+  width: 84px;
+  height: 84px;
+  object-fit: contain;
+  border-radius: 16px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+  margin: 0 auto 14px;
+  display: block;
+}
 .welcome-hero h1 { font-size: 32px; font-weight: 300; margin-bottom: 8px; color: var(--text-primary); }
 .welcome-hero p { font-size: 14px; color: var(--text-secondary); }
+.welcome-credit {
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--text-dim);
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
 
 .welcome-actions { display: flex; gap: 12px; }
 .welcome-btn {
