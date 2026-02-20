@@ -8,38 +8,47 @@ import java.io.*;
 
 public class Main {
     public static void main(String[] args) throws IOException {
+        // Initialize Reader
         BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
-        // For USACO file I/O, replace above with:
+        // PrintWriter pw = new PrintWriter(System.out);
+
+        // For USACO file I/O:
         // BufferedReader br = new BufferedReader(new FileReader("problem.in"));
         // PrintWriter pw = new PrintWriter(new FileWriter("problem.out"));
 
-        int n = Integer.parseInt(br.readLine().trim());
-        StringTokenizer st = new StringTokenizer(br.readLine());
-
-        // TODO: solve the problem
-
-        System.out.println(/* answer */);
+        StringTokenizer st = new StringTokenizer("");
+        
+        // Example: Read N
+        // String line = br.readLine();
+        // if (line == null) return;
+        // int n = Integer.parseInt(line.trim());
+        
+        // Solve...
+        
+        // pw.println(ans);
+        // pw.close();
     }
 }`,
 
   'cpp-usaco': `#include <bits/stdc++.h>
 using namespace std;
 
-// For USACO file I/O uncomment:
-// #define PROBLEM "problem"
-// freopen(PROBLEM".in","r",stdin);
-// freopen(PROBLEM".out","w",stdout);
+void solve() {
+    int n;
+    cin >> n;
+    // solve...
+    cout << n << "\\n";
+}
 
 int main() {
     ios_base::sync_with_stdio(false);
     cin.tie(NULL);
 
-    int n;
-    cin >> n;
+    // For USACO file I/O:
+    // freopen("problem.in", "r", stdin);
+    // freopen("problem.out", "w", stdout);
 
-    // TODO: solve the problem
-
-    cout << /* answer */ << "\\n";
+    solve();
     return 0;
 }`,
 
@@ -327,7 +336,8 @@ function wireUI() {
   });
 
   // Test cases
-  document.getElementById('btn-add-test').addEventListener('click', addTestCase);
+  document.getElementById('btn-add-test').addEventListener('click', () => addTestCase());
+  document.getElementById('btn-paste-test').addEventListener('click', pasteTestCase);
   document.getElementById('btn-run-all-tests').addEventListener('click', runAllTests);
 
   // Workspace / bundle / extension controls
@@ -622,6 +632,35 @@ function addTestCase(inputVal = '', expectedVal = '') {
   saveTestCasesToStorage();
 }
 
+async function pasteTestCase() {
+  try {
+    const text = await navigator.clipboard.readText();
+    if (!text || !text.trim()) return;
+
+    let input = '';
+    let output = '';
+
+    // Simple heuristic for "Input ... Output" format common in CP
+    const inputMatch = text.match(/Input:?\s*([\s\S]*?)(?:Output:?\s*([\s\S]*)|$)/i);
+    
+    if (inputMatch) {
+      input = inputMatch[1].trim();
+      output = (inputMatch[2] || '').trim();
+    } else {
+      // Fallback: just use whole text as input
+      input = text.trim();
+    }
+
+    addTestCase(input, output);
+    // Scroll to bottom
+    const container = document.getElementById('test-cases-container');
+    container.scrollTop = container.scrollHeight;
+  } catch (err) {
+    console.error('Failed to read clipboard', err);
+    alert('Could not paste from clipboard. Please grant permission.');
+  }
+}
+
 function renderTestCase(tc) {
   const container = document.getElementById('test-cases-container');
   const div = document.createElement('div');
@@ -738,10 +777,17 @@ async function runAllTests() {
   });
 
   // Show summary in status
-  const passed = results.filter(r => r.passed).length;
-  setStatus(passed === results.length ? 'ok' : 'error', `Tests: ${passed}/${results.length} passed`);
-  switchTab('output');
-  setTimeout(() => switchTab('tests'), 100);
+    const passed = results.filter(r => r.passed).length;
+    const total = results.length;
+    const allPassed = passed === total;
+    setStatus(allPassed ? 'ok' : 'error', `Tests: ${passed}/${total} passed`);
+    
+    // Auto-switch to tests tab if there are failures
+    if (!allPassed) {
+      switchTab('tests');
+    } else {
+      // If all passed, show a toast or small notification (optional, for now just status)
+    }
 }
 
 function saveTestCasesToStorage() {
@@ -811,8 +857,23 @@ async function updateBundleStatus() {
       el.title = b.version || '';
     } else {
       span.className = 'fail';
-      span.textContent = '✗ ' + b.status;
-      if (meta) meta.textContent = b.installHint || '';
+      span.textContent = '✗ missing';
+      if (meta) {
+        meta.innerHTML = '';
+        const link = document.createElement('span');
+        link.className = 'bundle-download-link';
+        link.textContent = 'Download';
+        link.onclick = () => {
+          const urls = {
+            java: 'https://adoptium.net/',
+            cpp: process.platform === 'win32' ? 'https://www.msys2.org/' : 'https://developer.apple.com/xcode/resources/',
+            python: 'https://www.python.org/downloads/'
+          };
+          if (urls[lang]) window.electronAPI.openExternal(urls[lang]);
+        };
+        meta.appendChild(document.createTextNode(b.installHint || 'Not installed. '));
+        meta.appendChild(link);
+      }
     }
   }
 }

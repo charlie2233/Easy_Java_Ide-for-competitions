@@ -1,38 +1,31 @@
 # CompIDE — Competitive Programming IDE
 
-A fast, offline-capable desktop IDE built specifically for competitive programmers (USACO, IOI, ICPC, Codeforces, etc.).
+A fast, "kool", and offline-capable desktop IDE built specifically for competitive programmers (USACO, IOI, ICPC, Codeforces, etc.).
 
 ## ✨ Features
 
-- **Monaco Editor** — the same editor powering VS Code, with full syntax highlighting, autocomplete, bracket pair colorization, and font ligatures
-- **Java, C++ & Python support** — compile and run all three languages with a single keypress
-- **One-click run** — press `⌘↵` (macOS) or `Ctrl+Enter` (Windows) to compile + run instantly
-- **Custom input panel** — paste your test input, hit run, see output immediately
-- **Test case manager** — define multiple input/expected-output pairs; run all at once and see PASS/FAIL/TLE per test
-- **Competition templates** — USACO Java, USACO C++, DP, Graph (Dijkstra), Fast Scanner, Segment Tree baked right in
-- **Time limit enforcement** — configurable TLE detection (default 5000 ms)
-- **Language bundle auto-detection** — detects Java (`java` + `javac`), C++ (`g++`/`clang++`/`cl`), and Python (`python3`/`python`/`py -3`) at startup
-- **Smart bundle auto-selection** — picks the best installed runtime/compiler per language (macOS + Windows-aware) and supports manual path overrides
-- **Compile cache for speed** — skips recompilation when code/toolchain are unchanged
-- **Themes** — Dark, Light, High Contrast (toggle in Settings)
-- **Persistent settings** — font size, tab size, time limit, compiler paths all saved locally
-- **USACO file mode** — optional `<problem>.in` input fallback and automatic `<problem>.out` output writing
-- **Workspace Git status** — local branch + dirty-state summary directly in sidebar
-- **VSCode snippet import** — import unpacked VSCode extension folders and use their Java/C++/Python snippets in Monaco autocomplete
-- **Fully offline** — no internet required after install
-- **macOS & Windows** — works on both platforms
+- **Monaco Editor** — The same editor powering VS Code, with full syntax highlighting, autocomplete, bracket pair colorization, and font ligatures.
+- **Java, C++ & Python Support** — Compile and run all three languages with a single keypress.
+- **One-Click Run** — Press `⌘↵` (macOS) or `Ctrl+Enter` (Windows) to compile + run instantly.
+- **Auto-Setup & Detection** — Automatically detects installed compilers (Java, GCC/Clang, Python). Provides direct download links if tools are missing.
+- **Smart Test Runner** — Define multiple test cases, "Paste Sample" from clipboard, and run all at once with clear PASS/FAIL indicators.
+- **Competition Templates** — Built-in templates for USACO (Java/C++), DP, Graph, Segment Tree, and Fast I/O.
+- **Offline Capable** — Works fully offline once compilers are installed.
+- **Themes** — Modern Dark (Replit-inspired), Light, and High Contrast themes.
+- **Persistent Settings** — Saves your preferences, compiler paths, and snippets.
+- **VS Code Import** — Import snippets from your favorite VS Code extensions.
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 
-Install the language runtimes you want to use:
+You need the language runtimes installed. The app will guide you if they are missing!
 
-| Language | Install |
+| Language | Requirement |
 |---|---|
-| Java | [Adoptium JDK 17+](https://adoptium.net/) or `brew install openjdk` |
-| C++ | Xcode CLI Tools: `xcode-select --install` (macOS) or MinGW/MSYS2 (Windows) |
-| Python | [python.org](https://www.python.org/downloads/) or `brew install python` |
+| **Java** | [Adoptium JDK 17+](https://adoptium.net/) |
+| **C++** | Xcode CLI Tools (macOS) or MinGW/MSYS2 (Windows) |
+| **Python** | [Python 3](https://www.python.org/downloads/) |
 
 ### Run the App
 
@@ -61,71 +54,30 @@ npm start
 | `⌘N` / `Ctrl+N` | New file |
 | `⌘,` / `Ctrl+,` | Open Settings |
 
-## 🧪 Running Tests
+## 🧪 Testing
 
 ```bash
 npm test
 ```
+Runs the automated backend test suite.
 
-Runs 14 automated tests covering Java/C++/Python compilation, execution, input handling, TLE detection, compile error detection, test case comparison, bundle detection, and VSCode snippet import.
-
-## 🗂️ Project Structure
-
-```
-.
-├── main.js              # Electron main process
-├── preload.js           # Context bridge (renderer ↔ main)
-├── src/
-│   ├── main/
-│   │   ├── runner.js         # Compile + execute code
-│   │   ├── test-runner.js    # Multi-test-case runner with pass/fail comparison
-│   │   ├── bundle-manager.js # Detect installed language runtimes
-│   │   └── vscode-importer.js # Import snippets from unpacked VSCode extensions
-│   └── renderer/
-│       ├── index.html        # App UI
-│       ├── app.js            # Renderer logic (Monaco integration, UI state)
-│       └── styles.css        # Themes and layout
-├── templates/           # Template reference docs
-├── tests/
-│   └── runner.test.js   # Automated backend tests
-└── package.json
-```
-
-## ⚙️ Settings
-
-Open Settings with `⌘,`. Configure:
-
-- **Theme** — Dark / Light / High Contrast
-- **Font size** and **Tab size**
-- **Time limit** (ms) — used for TLE detection
-- **Memory limit** (MB) — passed to JVM as `-Xmx`
-- **Language paths** — override auto-detected compiler/runtime paths
-- **Auto-pick bundle** — enable/disable automatic toolchain selection
-- **USACO file mode** — set base problem name and file-input fallback behavior
-
-## 📦 Build Installers
+## 📦 Build for Distribution
 
 ```bash
-# macOS .dmg/.zip
+# macOS .dmg
 npm run dist:mac
 
-# Windows installer/.zip
+# Windows .exe
 npm run dist:win
 ```
 
-## 🏆 USACO-Specific Tips
+## 🏆 USACO & Competition Tips
 
-- Use the **"USACO Java"** or **"USACO C++"** templates for the correct I/O setup
-- For file I/O problems, uncomment the `FileReader`/`FileWriter` lines in the Java template
-- Set your **Time Limit** in Settings to match the problem's limit (typically 2000–4000 ms for USACO)
-- Add all sample test cases from the problem statement in the **Test Cases** panel and run them all at once before submitting
+1.  **Templates**: Use the sidebar buttons to insert "USACO Java" or "USACO C++" templates that handle file I/O boilerplate.
+2.  **Paste Sample**: Copy the sample input/output from the problem page and click "Paste" in the Test Cases tab.
+3.  **Run All**: Click "Run All" to verify your solution against all samples instantly.
+4.  **Time Limit**: Adjust the Time Limit in settings (default 5000ms) to match the problem constraints.
 
-## 📋 Roadmap
+---
 
-- [x] Packaged macOS + Windows build scripts (`electron-builder`)
-- [x] VSCode extension import (unpacked folder snippets)
-- [ ] VSIX direct import
-- [ ] Integrated file explorer / project view
-- [ ] Syntax-aware code formatting (Google Java Format, clang-format)
-- [ ] Submission integrations (Codeforces, USACO)
-- [ ] Problem fetcher (parse problems from competitive programming sites)
+*Made for competitive programmers, by competitive programmers.*
