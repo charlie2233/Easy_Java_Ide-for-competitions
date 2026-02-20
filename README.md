@@ -11,9 +11,14 @@ A fast, offline-capable desktop IDE built specifically for competitive programme
 - **Test case manager** — define multiple input/expected-output pairs; run all at once and see PASS/FAIL/TLE per test
 - **Competition templates** — USACO Java, USACO C++, DP, Graph (Dijkstra), Fast Scanner, Segment Tree baked right in
 - **Time limit enforcement** — configurable TLE detection (default 5000 ms)
-- **Language bundle auto-detection** — checks `java`, `javac`, `g++`, and `python3` at startup; shows status in sidebar
+- **Language bundle auto-detection** — detects Java (`java` + `javac`), C++ (`g++`/`clang++`/`cl`), and Python (`python3`/`python`/`py -3`) at startup
+- **Smart bundle auto-selection** — picks the best installed runtime/compiler per language (macOS + Windows-aware) and supports manual path overrides
+- **Compile cache for speed** — skips recompilation when code/toolchain are unchanged
 - **Themes** — Dark, Light, High Contrast (toggle in Settings)
 - **Persistent settings** — font size, tab size, time limit, compiler paths all saved locally
+- **USACO file mode** — optional `<problem>.in` input fallback and automatic `<problem>.out` output writing
+- **Workspace Git status** — local branch + dirty-state summary directly in sidebar
+- **VSCode snippet import** — import unpacked VSCode extension folders and use their Java/C++/Python snippets in Monaco autocomplete
 - **Fully offline** — no internet required after install
 - **macOS & Windows** — works on both platforms
 
@@ -62,7 +67,7 @@ npm start
 npm test
 ```
 
-Runs 13 automated tests covering Java/C++/Python compilation, execution, input handling, TLE detection, compile error detection, test case comparison, and bundle detection.
+Runs 14 automated tests covering Java/C++/Python compilation, execution, input handling, TLE detection, compile error detection, test case comparison, bundle detection, and VSCode snippet import.
 
 ## 🗂️ Project Structure
 
@@ -74,7 +79,8 @@ Runs 13 automated tests covering Java/C++/Python compilation, execution, input h
 │   ├── main/
 │   │   ├── runner.js         # Compile + execute code
 │   │   ├── test-runner.js    # Multi-test-case runner with pass/fail comparison
-│   │   └── bundle-manager.js # Detect installed language runtimes
+│   │   ├── bundle-manager.js # Detect installed language runtimes
+│   │   └── vscode-importer.js # Import snippets from unpacked VSCode extensions
 │   └── renderer/
 │       ├── index.html        # App UI
 │       ├── app.js            # Renderer logic (Monaco integration, UI state)
@@ -94,6 +100,18 @@ Open Settings with `⌘,`. Configure:
 - **Time limit** (ms) — used for TLE detection
 - **Memory limit** (MB) — passed to JVM as `-Xmx`
 - **Language paths** — override auto-detected compiler/runtime paths
+- **Auto-pick bundle** — enable/disable automatic toolchain selection
+- **USACO file mode** — set base problem name and file-input fallback behavior
+
+## 📦 Build Installers
+
+```bash
+# macOS .dmg/.zip
+npm run dist:mac
+
+# Windows installer/.zip
+npm run dist:win
+```
 
 ## 🏆 USACO-Specific Tips
 
@@ -104,8 +122,9 @@ Open Settings with `⌘,`. Configure:
 
 ## 📋 Roadmap
 
-- [ ] Packaged macOS `.app` + Windows `.exe` installers
-- [ ] VSCode extension import (VSIX loader)
+- [x] Packaged macOS + Windows build scripts (`electron-builder`)
+- [x] VSCode extension import (unpacked folder snippets)
+- [ ] VSIX direct import
 - [ ] Integrated file explorer / project view
 - [ ] Syntax-aware code formatting (Google Java Format, clang-format)
 - [ ] Submission integrations (Codeforces, USACO)

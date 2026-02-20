@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readFile: (filePath) => ipcRenderer.invoke('file:read', filePath),
   writeFile: (filePath, content) => ipcRenderer.invoke('file:write', filePath, content),
   openFileDialog: () => ipcRenderer.invoke('file:open-dialog'),
+  openFolderDialog: () => ipcRenderer.invoke('file:open-folder-dialog'),
   saveFileDialog: (defaultName) => ipcRenderer.invoke('file:save-dialog', defaultName),
   getRecentFiles: () => ipcRenderer.invoke('file:recent'),
   addRecentFile: (filePath) => ipcRenderer.invoke('file:add-recent', filePath),
@@ -19,6 +20,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Environment
   getEnvInfo: () => ipcRenderer.invoke('env:info'),
   openPath: (p) => ipcRenderer.invoke('shell:open-path', p),
+  openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
 
   // Code execution
   runCode: (opts) => ipcRenderer.invoke('run:code', opts),
@@ -26,7 +28,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   runTestCases: (opts) => ipcRenderer.invoke('run:test-cases', opts),
 
   // Bundle management
-  detectBundles: () => ipcRenderer.invoke('bundle:detect'),
+  detectBundles: (overrides) => ipcRenderer.invoke('bundle:detect', overrides),
+  resolveBundles: (overrides) => ipcRenderer.invoke('bundle:resolve', overrides),
+
+  // Workspace / Git
+  getGitStatus: (targetPath) => ipcRenderer.invoke('git:status', targetPath),
+
+  // VSCode extension import
+  importVSCodeExtensionFolder: (folderPath) => ipcRenderer.invoke('extension:import-folder', folderPath),
 
   // Menu events (main → renderer)
   onMenuEvent: (event, callback) => {

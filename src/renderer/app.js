@@ -179,17 +179,26 @@ let currentFilePath = null;
 let isDirty = false;
 let testCases = [];
 let nextTestId = 1;
+let bundlesState = null;
+let gitState = null;
+let importedVSCodeExtensions = [];
+let importedSnippets = { java: [], cpp: [], python: [] };
+let snippetProviders = [];
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 require(['vs/editor/editor.main'], async function () {
   settings = await window.electronAPI.getSettings();
+  hydrateSnippetImportsFromStorage();
   applyTheme(settings.theme);
   initEditor();
+  registerSnippetProviders();
   loadInitialContent();
   wireUI();
   updateBundleStatus();
+  refreshGitStatus();
   loadRecentFiles();
   loadTestCasesFromStorage();
+  renderImportedExtensions();
 });
 
 // ─── Monaco Editor ────────────────────────────────────────────────────────────
@@ -321,6 +330,24 @@ function wireUI() {
   document.getElementById('btn-add-test').addEventListener('click', addTestCase);
   document.getElementById('btn-run-all-tests').addEventListener('click', runAllTests);
 
+  // Workspace / bundle / extension controls
+  const refreshBundlesBtn = document.getElementById('btn-refresh-bundles');
+  if (refreshBundlesBtn) refreshBundlesBtn.addEventListener('click', updateBundleStatus);
+
+  const refreshRepoBtn = document.getElementById('btn-refresh-repo');
+  if (refreshRepoBtn) refreshRepoBtn.addEventListener('click', refreshGitStatus);
+
+  const openRemoteBtn = document.getElementById('btn-open-remote');
+  if (openRemoteBtn) {
+    openRemoteBtn.addEventListener('click', () => {
+      const browseUrl = toBrowsableRemoteUrl(gitState?.remoteUrl);
+      if (browseUrl) window.electronAPI.openExternal(browseUrl);
+    });
+  }
+
+  const importExtBtn = document.getElementById('btn-import-vscode-ext');
+  if (importExtBtn) importExtBtn.addEventListener('click', importVSCodeExtension);
+
   // Settings modal
   document.getElementById('btn-settings-close').addEventListener('click', closeSettings);
   document.getElementById('btn-settings-cancel').addEventListener('click', closeSettings);
@@ -341,6 +368,7 @@ function wireUI() {
   window.electronAPI.onMenuEvent('save', () => saveFile());
   window.electronAPI.onMenuEvent('template', () => {});
   window.electronAPI.onMenuEvent('bundle-status', () => updateBundleStatus());
+  window.electronAPI.onMenuEvent('import-vscode-ext', () => importVSCodeExtension());
 
   window.electronAPI.onFileOpened(({ filePath, content }) => {
     openFileContent(filePath, content);
@@ -415,6 +443,7 @@ function newFile() {
   currentFilePath = null;
   isDirty = false;
   updateTitle();
+  refreshGitStatus();
 }
 
 async function openFile() {
@@ -441,6 +470,7 @@ function openFileContent(filePath, content) {
   document.getElementById('lang-select').dispatchEvent(new Event('change'));
 
   loadRecentFiles();
+  refreshGitStatus();
 }
 
 async function saveFile() {
@@ -460,12 +490,16 @@ async function saveFileAs() {
 }
 
 async function writeCurrentFile(filePath) {
+  if (settings.formatOnSave) {
+    await formatCode();
+  }
   const content = editor.getValue();
   const { ok, error } = await window.electronAPI.writeFile(filePath, content);
   if (!ok) { alert('Error saving: ' + error); return; }
   isDirty = false;
   currentFilePath = filePath;
   updateTitle();
+  refreshGitStatus();
 }
 
 async function loadRecentFiles() {
@@ -522,6 +556,10 @@ async function executeAndShow(code, language, input) {
       input,
       filePath: currentFilePath,
       timeLimitMs: settings.timeLimitMs || 5000,
+      memoryLimitMb: settings.memoryLimitMb || 256,
+      usacoMode: settings.usacoMode || false,
+      usacoProblem: settings.usacoProblem || 'problem',
+      usacoUseFileInput: settings.usacoUseFileInput !== false,
     });
 
     const output = document.getElementById('output-area');
@@ -544,7 +582,21 @@ async function executeAndShow(code, language, input) {
       output.style.color = 'var(--text-primary)';
     }
 
-    document.getElementById('run-time').textContent = result.timeMs ? `${result.timeMs}ms` : '';
+    const metrics = [];
+    if (result.timeMs) metrics.push(`${result.timeMs}ms`);
+    if (result.compileMs) metrics.push(`compile ${result.compileMs}ms`);
+    if (result.cacheHit) metrics.push('cache-hit');
+    document.getElementById('run-time').textContent = metrics.join(' • ');
+
+    if (result.usaco?.enabled) {
+      const usacoMeta = [];
+      if (result.usaco.usedInputFile) usacoMeta.push(`stdin: ${result.usaco.problemName}.in`);
+      if (result.usaco.outputWritten) usacoMeta.push(`wrote ${result.usaco.problemName}.out`);
+      if (result.usaco.outputWriteError) usacoMeta.push(`write failed: ${result.usaco.outputWriteError}`);
+      if (usacoMeta.length) {
+        output.textContent += `\n\n[USACO] ${usacoMeta.join(' | ')}`;
+      }
+    }
   } catch (err) {
     setStatus('error', '✗ Error');
     document.getElementById('output-area').textContent = err.message;
@@ -675,6 +727,10 @@ async function runAllTests() {
     code,
     testCases: testCases.map(tc => ({ name: tc.name, input: tc.input, expectedOutput: tc.expectedOutput })),
     timeLimitMs: settings.timeLimitMs || 5000,
+    memoryLimitMb: settings.memoryLimitMb || 256,
+    usacoMode: settings.usacoMode || false,
+    usacoProblem: settings.usacoProblem || 'problem',
+    usacoUseFileInput: settings.usacoUseFileInput !== false,
   });
 
   results.forEach((result, i) => {
@@ -721,7 +777,20 @@ function loadTestCasesFromStorage() {
 
 // ─── Bundle Status ────────────────────────────────────────────────────────────
 async function updateBundleStatus() {
-  const bundles = await window.electronAPI.detectBundles();
+  let bundles;
+  try {
+    bundles = await window.electronAPI.detectBundles({
+      javaPath: settings.javaPath || '',
+      javacPath: settings.javacPath || '',
+      cppCompiler: settings.cppCompiler || '',
+      pythonPath: settings.pythonPath || '',
+      autoPickBestBundle: settings.autoPickBestBundle !== false,
+    });
+  } catch (err) {
+    console.error(err);
+    return;
+  }
+  bundlesState = bundles;
 
   const items = { java: 'bundle-java', cpp: 'bundle-cpp', python: 'bundle-python' };
   for (const [lang, elemId] of Object.entries(items)) {
@@ -729,13 +798,21 @@ async function updateBundleStatus() {
     const el = document.getElementById(elemId);
     if (!el) continue;
     const span = el.querySelector('span');
+    const meta = el.querySelector('.bundle-meta');
     if (b.available) {
       span.className = 'ok';
       span.textContent = '✓ ready';
+      const resolved = lang === 'java'
+        ? `${basenameSafe(b.runtime?.command)} + ${basenameSafe(b.compiler?.command)}`
+        : lang === 'cpp'
+        ? `${basenameSafe(b.compiler?.command)} (${b.flavor || 'compiler'})`
+        : basenameSafe(b.runtime?.command);
+      if (meta) meta.textContent = resolved;
       el.title = b.version || '';
     } else {
       span.className = 'fail';
       span.textContent = '✗ ' + b.status;
+      if (meta) meta.textContent = b.installHint || '';
     }
   }
 }
@@ -773,8 +850,13 @@ function openSettings() {
   document.getElementById('setting-time-limit').value = settings.timeLimitMs || 5000;
   document.getElementById('setting-memory-limit').value = settings.memoryLimitMb || 256;
   document.getElementById('setting-java-path').value = settings.javaPath || '';
-  document.getElementById('setting-cpp-compiler').value = settings.cppCompiler || 'g++';
-  document.getElementById('setting-python-path').value = settings.pythonPath || 'python3';
+  document.getElementById('setting-javac-path').value = settings.javacPath || '';
+  document.getElementById('setting-cpp-compiler').value = settings.cppCompiler || '';
+  document.getElementById('setting-python-path').value = settings.pythonPath || '';
+  document.getElementById('setting-auto-pick-bundle').checked = settings.autoPickBestBundle !== false;
+  document.getElementById('setting-usaco-mode').checked = settings.usacoMode || false;
+  document.getElementById('setting-usaco-problem').value = settings.usacoProblem || 'problem';
+  document.getElementById('setting-usaco-file-input').checked = settings.usacoUseFileInput !== false;
   document.getElementById('settings-overlay').classList.remove('hidden');
 }
 
@@ -793,12 +875,18 @@ async function saveSettings() {
   const timeLimitMs = parseInt(document.getElementById('setting-time-limit').value);
   const memoryLimitMb = parseInt(document.getElementById('setting-memory-limit').value);
   const javaPath = document.getElementById('setting-java-path').value.trim();
-  const cppCompiler = document.getElementById('setting-cpp-compiler').value.trim() || 'g++';
-  const pythonPath = document.getElementById('setting-python-path').value.trim() || 'python3';
+  const javacPath = document.getElementById('setting-javac-path').value.trim();
+  const cppCompiler = document.getElementById('setting-cpp-compiler').value.trim();
+  const pythonPath = document.getElementById('setting-python-path').value.trim();
+  const autoPickBestBundle = document.getElementById('setting-auto-pick-bundle').checked;
+  const usacoMode = document.getElementById('setting-usaco-mode').checked;
+  const usacoProblem = sanitizeProblemName(document.getElementById('setting-usaco-problem').value.trim() || 'problem');
+  const usacoUseFileInput = document.getElementById('setting-usaco-file-input').checked;
 
   const updates = { theme: newTheme, fontSize: newFontSize, tabSize: newTabSize,
     showLineNumbers, wordWrap, minimap, formatOnSave, timeLimitMs, memoryLimitMb,
-    javaPath, cppCompiler, pythonPath };
+    javaPath, javacPath, cppCompiler, pythonPath, autoPickBestBundle,
+    usacoMode, usacoProblem, usacoUseFileInput };
 
   for (const [k, v] of Object.entries(updates)) {
     settings[k] = v;
@@ -816,6 +904,172 @@ async function saveSettings() {
   });
 
   closeSettings();
+  updateBundleStatus();
+}
+
+// ─── Workspace (Git) ─────────────────────────────────────────────────────────
+async function refreshGitStatus() {
+  try {
+    const status = await window.electronAPI.getGitStatus(currentFilePath || null);
+    gitState = status;
+    renderGitStatus();
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+function renderGitStatus() {
+  const branchEl = document.getElementById('repo-branch');
+  const dirtyEl = document.getElementById('repo-dirty');
+  const rootEl = document.getElementById('repo-root');
+  const remoteBtn = document.getElementById('btn-open-remote');
+  if (!branchEl || !dirtyEl || !rootEl || !remoteBtn) return;
+
+  if (!gitState || !gitState.inRepo) {
+    branchEl.textContent = 'No git repo';
+    dirtyEl.textContent = '';
+    rootEl.textContent = '';
+    rootEl.title = '';
+    remoteBtn.disabled = true;
+    return;
+  }
+
+  branchEl.textContent = `Branch: ${gitState.branch}`;
+  dirtyEl.textContent = gitState.dirtyCount > 0
+    ? `${gitState.dirtyCount} pending changes`
+    : 'Clean working tree';
+  rootEl.textContent = gitState.root.split('/').pop() || gitState.root;
+  rootEl.title = gitState.root;
+  remoteBtn.disabled = !toBrowsableRemoteUrl(gitState.remoteUrl);
+}
+
+// ─── VSCode Extension Snippet Import ─────────────────────────────────────────
+async function importVSCodeExtension() {
+  const result = await window.electronAPI.openFolderDialog();
+  if (!result || result.canceled || !result.filePaths?.length) return;
+
+  const folderPath = result.filePaths[0];
+  const importResult = await window.electronAPI.importVSCodeExtensionFolder(folderPath);
+  if (!importResult.ok) {
+    alert(`Import failed: ${importResult.error}`);
+    return;
+  }
+
+  importedVSCodeExtensions = [
+    {
+      extension: importResult.extension,
+      snippetsByLanguage: importResult.snippetsByLanguage,
+      snippetCount: importResult.snippetCount,
+      importedAt: Date.now(),
+    },
+    ...importedVSCodeExtensions.filter(
+      item => item.extension?.sourcePath !== importResult.extension?.sourcePath,
+    ),
+  ].slice(0, 20);
+
+  persistSnippetImportsToStorage();
+  rebuildSnippetIndex();
+  registerSnippetProviders();
+  renderImportedExtensions();
+
+  alert(`Imported ${importResult.snippetCount} snippets from ${importResult.extension.displayName}.`);
+}
+
+function hydrateSnippetImportsFromStorage() {
+  try {
+    const raw = localStorage.getItem('comp-ide-vscode-imports');
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return;
+    importedVSCodeExtensions = parsed.filter(item =>
+      item && item.extension && item.snippetsByLanguage,
+    );
+  } catch (_) {
+    importedVSCodeExtensions = [];
+  }
+  rebuildSnippetIndex();
+}
+
+function persistSnippetImportsToStorage() {
+  try {
+    localStorage.setItem('comp-ide-vscode-imports', JSON.stringify(importedVSCodeExtensions));
+  } catch (_) {}
+}
+
+function rebuildSnippetIndex() {
+  importedSnippets = { java: [], cpp: [], python: [] };
+  for (const imported of importedVSCodeExtensions) {
+    for (const lang of Object.keys(importedSnippets)) {
+      const list = imported.snippetsByLanguage?.[lang] || [];
+      importedSnippets[lang].push(...list);
+    }
+  }
+  for (const lang of Object.keys(importedSnippets)) {
+    const seen = new Set();
+    importedSnippets[lang] = importedSnippets[lang].filter((snippet) => {
+      const key = `${snippet.prefix}|${snippet.body}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+}
+
+function registerSnippetProviders() {
+  snippetProviders.forEach((provider) => provider.dispose());
+  snippetProviders = [];
+
+  const languagePairs = [
+    ['java', 'java'],
+    ['cpp', 'cpp'],
+    ['python', 'python'],
+  ];
+
+  languagePairs.forEach(([monacoLanguage, appLanguage]) => {
+    const provider = monaco.languages.registerCompletionItemProvider(monacoLanguage, {
+      provideCompletionItems: () => {
+        const snippets = importedSnippets[appLanguage] || [];
+        const suggestions = snippets.map((snippet, index) => ({
+          label: snippet.prefix,
+          kind: monaco.languages.CompletionItemKind.Snippet,
+          insertText: snippet.body,
+          insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+          documentation: snippet.description || snippet.name || 'Imported VSCode snippet',
+          sortText: `z-${index.toString().padStart(6, '0')}`,
+        }));
+        return { suggestions };
+      },
+    });
+    snippetProviders.push(provider);
+  });
+}
+
+function renderImportedExtensions() {
+  const listEl = document.getElementById('vscode-imports-list');
+  const countEl = document.getElementById('vscode-import-count');
+  if (!listEl || !countEl) return;
+
+  listEl.innerHTML = '';
+  const snippetCount = Object.values(importedSnippets).reduce((sum, list) => sum + list.length, 0);
+  countEl.textContent = `${snippetCount} snippets`;
+
+  if (!importedVSCodeExtensions.length) {
+    const empty = document.createElement('div');
+    empty.className = 'vscode-import-empty';
+    empty.textContent = 'No imported extensions yet.';
+    listEl.appendChild(empty);
+    return;
+  }
+
+  importedVSCodeExtensions.forEach((item) => {
+    const row = document.createElement('div');
+    row.className = 'vscode-import-item';
+    row.innerHTML = `
+      <div class="vscode-import-title">${escHtml(item.extension.displayName || item.extension.name)}</div>
+      <div class="vscode-import-meta">${item.snippetCount || 0} snippets</div>
+    `;
+    listEl.appendChild(row);
+  });
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -833,4 +1087,25 @@ function updateLangBadge(lang) {
 
 function escHtml(str) {
   return (str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function basenameSafe(value) {
+  if (!value) return '(missing)';
+  const parts = value.split(/[\\/]/);
+  return parts[parts.length - 1] || value;
+}
+
+function sanitizeProblemName(name) {
+  const safe = (name || 'problem').replace(/[^A-Za-z0-9_-]/g, '');
+  return safe || 'problem';
+}
+
+function toBrowsableRemoteUrl(remote) {
+  if (!remote) return null;
+  if (/^https?:\/\//i.test(remote)) return remote.replace(/\.git$/i, '');
+  const sshMatch = remote.match(/^git@([^:]+):(.+)$/i);
+  if (sshMatch) {
+    return `https://${sshMatch[1]}/${sshMatch[2].replace(/\.git$/i, '')}`;
+  }
+  return null;
 }

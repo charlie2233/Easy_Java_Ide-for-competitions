@@ -1,6 +1,7 @@
 'use strict';
 
 const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
+const { execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -20,9 +21,15 @@ async function getStore() {
         windowBounds: { width: 1400, height: 900 },
         recentFiles: [],
         javaPath: '',
-        cppCompiler: 'g++',
-        pythonPath: 'python3',
+        javacPath: '',
+        cppCompiler: '',
+        pythonPath: '',
+        autoPickBestBundle: true,
         autoDetectLanguage: true,
+        usacoMode: false,
+        usacoProblem: 'problem',
+        usacoUseFileInput: true,
+        vscodeImports: [],
         showLineNumbers: true,
         wordWrap: false,
         minimap: false,
@@ -40,6 +47,7 @@ let mainWindow;
 async function createWindow() {
   const s = await getStore();
   const bounds = s.get('windowBounds');
+  const iconPath = path.join(__dirname, 'assets', 'icons', 'icon.png');
 
   mainWindow = new BrowserWindow({
     width: bounds.width,
@@ -54,7 +62,7 @@ async function createWindow() {
       nodeIntegration: false,
       sandbox: false,
     },
-    icon: path.join(__dirname, 'assets', 'icons', 'icon.png'),
+    icon: fs.existsSync(iconPath) ? iconPath : undefined,
     show: false,
   });
 
@@ -120,6 +128,7 @@ function buildMenu() {
       submenu: [
         { label: 'Settings', accelerator: 'CmdOrCtrl+,', click: () => mainWindow.webContents.send('menu:settings') },
         { label: 'Language Bundle Status', click: () => mainWindow.webContents.send('menu:bundle-status') },
+        { label: 'Import VSCode Extension Folder…', click: () => mainWindow.webContents.send('menu:import-vscode-ext') },
         { label: 'Insert Template…', click: () => mainWindow.webContents.send('menu:template') },
       ],
     },
@@ -203,6 +212,13 @@ ipcMain.handle('file:open-dialog', async () => {
   return result;
 });
 
+ipcMain.handle('file:open-folder-dialog', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory'],
+  });
+  return result;
+});
+
 ipcMain.handle('file:save-dialog', async (_e, defaultName) => {
   const result = await dialog.showSaveDialog(mainWindow, {
     defaultPath: defaultName,
@@ -227,25 +243,163 @@ ipcMain.handle('env:info', () => ({
 }));
 
 ipcMain.handle('shell:open-path', (_e, p) => shell.openPath(p));
+ipcMain.handle('shell:open-external', (_e, url) => shell.openExternal(url));
 
 // ─── Code Execution ──────────────────────────────────────────────────────────
 const { runCode, killProcess } = require('./src/main/runner');
+const { detectBundles, resolveToolchain } = require('./src/main/bundle-manager');
+const { importVSCodeExtensionFolder } = require('./src/main/vscode-importer');
+
+function execInCwd(cmd, args, cwd) {
+  return new Promise((resolve) => {
+    execFile(cmd, args, { cwd }, (err, stdout, stderr) => {
+      resolve({
+        ok: !err,
+        stdout: stdout || '',
+        stderr: stderr || '',
+        code: err ? (err.code ?? 1) : 0,
+      });
+    });
+  });
+}
+
+function getWorkspaceDir(targetPath) {
+  if (!targetPath) return process.cwd();
+  try {
+    const stats = fs.statSync(targetPath);
+    return stats.isDirectory() ? targetPath : path.dirname(targetPath);
+  } catch (_) {
+    return process.cwd();
+  }
+}
+
+async function getGitStatus(targetPath) {
+  const workspace = getWorkspaceDir(targetPath);
+  const rootRes = await execInCwd('git', ['rev-parse', '--show-toplevel'], workspace);
+  if (!rootRes.ok) {
+    return { inRepo: false, workspace };
+  }
+
+  const root = rootRes.stdout.trim();
+  const [branchRes, statusRes, remoteRes] = await Promise.all([
+    execInCwd('git', ['rev-parse', '--abbrev-ref', 'HEAD'], root),
+    execInCwd('git', ['status', '--porcelain'], root),
+    execInCwd('git', ['remote', 'get-url', 'origin'], root),
+  ]);
+
+  const dirtyCount = statusRes.stdout.trim()
+    ? statusRes.stdout.trim().split(/\r?\n/).length
+    : 0;
+
+  return {
+    inRepo: true,
+    workspace,
+    root,
+    branch: branchRes.ok ? branchRes.stdout.trim() : '(unknown)',
+    dirtyCount,
+    remoteUrl: remoteRes.ok ? remoteRes.stdout.trim() : null,
+  };
+}
+
+async function currentRuntimeSettings(overrides = {}) {
+  const s = await getStore();
+  return {
+    javaPath: s.get('javaPath') || '',
+    javacPath: s.get('javacPath') || '',
+    cppCompiler: s.get('cppCompiler') || '',
+    pythonPath: s.get('pythonPath') || '',
+    autoPickBestBundle: s.get('autoPickBestBundle') !== false,
+    ...overrides,
+  };
+}
+
+function missingBundleResult(language, bundle) {
+  return {
+    stdout: '',
+    stderr: `${language.toUpperCase()} toolchain is not ready (${bundle?.status || 'unknown'}). ${bundle?.installHint || ''}`.trim(),
+    exitCode: 1,
+    compileError: true,
+    timedOut: false,
+    timeMs: 0,
+  };
+}
+
+async function buildRunOptions(opts = {}) {
+  const s = await getStore();
+  const runtimeSettings = await currentRuntimeSettings(opts.runtimeSettings || {});
+  const resolved = await resolveToolchain(runtimeSettings);
+  return {
+    ...opts,
+    timeLimitMs: opts.timeLimitMs || s.get('timeLimitMs') || 5000,
+    memoryLimitMb: opts.memoryLimitMb || s.get('memoryLimitMb') || 256,
+    usacoMode: typeof opts.usacoMode === 'boolean' ? opts.usacoMode : !!s.get('usacoMode'),
+    usacoProblem: opts.usacoProblem || s.get('usacoProblem') || 'problem',
+    usacoUseFileInput: typeof opts.usacoUseFileInput === 'boolean'
+      ? opts.usacoUseFileInput
+      : s.get('usacoUseFileInput') !== false,
+    toolchain: resolved.best,
+    bundleInfo: resolved.bundles,
+  };
+}
 
 ipcMain.handle('run:code', async (_e, opts) => {
-  return runCode(opts);
+  const runOpts = await buildRunOptions(opts || {});
+  const bundle = runOpts.bundleInfo?.[runOpts.language];
+  if (!bundle?.available) {
+    return missingBundleResult(runOpts.language || 'language', bundle);
+  }
+  return runCode(runOpts);
 });
 
 ipcMain.handle('run:kill', () => killProcess());
 
 ipcMain.handle('run:test-cases', async (_e, opts) => {
   const { runTestCases } = require('./src/main/test-runner');
-  return runTestCases(opts);
+  const runOpts = await buildRunOptions(opts || {});
+  const bundle = runOpts.bundleInfo?.[runOpts.language];
+  if (!bundle?.available) {
+    const failed = missingBundleResult(runOpts.language || 'language', bundle);
+    const testCases = Array.isArray(runOpts.testCases) ? runOpts.testCases : [];
+    return testCases.map((tc) => ({
+      name: tc.name || 'Test',
+      passed: false,
+      input: tc.input || '',
+      expectedOutput: tc.expectedOutput || '',
+      actualOutput: '',
+      stderr: failed.stderr,
+      timeMs: 0,
+      timedOut: false,
+      compileError: true,
+      exitCode: 1,
+    }));
+  }
+  return runTestCases(runOpts);
 });
 
 // ─── Bundle Manager ──────────────────────────────────────────────────────────
-const { detectBundles } = require('./src/main/bundle-manager');
+ipcMain.handle('bundle:detect', async (_e, overrides = {}) => {
+  const runtimeSettings = await currentRuntimeSettings(overrides);
+  return detectBundles(runtimeSettings);
+});
 
-ipcMain.handle('bundle:detect', async () => detectBundles());
+ipcMain.handle('bundle:resolve', async (_e, overrides = {}) => {
+  const runtimeSettings = await currentRuntimeSettings(overrides);
+  return resolveToolchain(runtimeSettings);
+});
+
+// ─── Workspace + VSCode Import ───────────────────────────────────────────────
+ipcMain.handle('git:status', async (_e, targetPath) => getGitStatus(targetPath));
+
+ipcMain.handle('extension:import-folder', async (_e, folderPath) => {
+  const result = importVSCodeExtensionFolder(folderPath);
+  if (!result.ok) return result;
+
+  const s = await getStore();
+  const current = s.get('vscodeImports') || [];
+  const withoutDupes = current.filter((item) => item.sourcePath !== result.extension.sourcePath);
+  s.set('vscodeImports', [result.extension, ...withoutDupes].slice(0, 20));
+  return result;
+});
 
 // ─── App Lifecycle ────────────────────────────────────────────────────────────
 app.whenReady().then(createWindow);

@@ -9,13 +9,38 @@ const { runCode } = require('./runner');
  * @param {string} opts.code
  * @param {Array<{name, input, expectedOutput}>} opts.testCases
  * @param {number} [opts.timeLimitMs]
+ * @param {number} [opts.memoryLimitMb]
+ * @param {object} [opts.toolchain]
+ * @param {boolean} [opts.usacoMode]
+ * @param {string} [opts.usacoProblem]
+ * @param {boolean} [opts.usacoUseFileInput]
  * @returns {Promise<Array<{name, passed, input, expectedOutput, actualOutput, stderr, timeMs, timedOut}>>}
  */
-async function runTestCases({ language, code, testCases, timeLimitMs = 5000 }) {
+async function runTestCases({
+  language,
+  code,
+  testCases,
+  timeLimitMs = 5000,
+  memoryLimitMb = 256,
+  toolchain = {},
+  usacoMode = false,
+  usacoProblem = 'problem',
+  usacoUseFileInput = true,
+}) {
   const results = [];
 
   for (const tc of testCases) {
-    const result = await runCode({ language, code, input: tc.input, timeLimitMs });
+    const result = await runCode({
+      language,
+      code,
+      input: tc.input,
+      timeLimitMs,
+      memoryLimitMb,
+      toolchain,
+      usacoMode,
+      usacoProblem,
+      usacoUseFileInput,
+    });
 
     const actual = normalizeOutput(result.stdout);
     const expected = normalizeOutput(tc.expectedOutput || '');

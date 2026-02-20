@@ -59,11 +59,45 @@
 
       <div class="sidebar-section">
         <div class="sidebar-title">BUNDLE STATUS</div>
-        <div id="bundle-status">
-          <div class="bundle-item" id="bundle-java">☕ Java: <span>checking…</span></div>
-          <div class="bundle-item" id="bundle-cpp">⚡ C++: <span>checking…</span></div>
-          <div class="bundle-item" id="bundle-python">🐍 Python: <span>checking…</span></div>
+        <div class="sidebar-inline-actions">
+          <button class="tool-btn sidebar-mini-btn" id="btn-refresh-bundles" title="Refresh runtime detection">↻</button>
         </div>
+        <div id="bundle-status">
+          <div class="bundle-item" id="bundle-java">
+            ☕ Java: <span>checking…</span>
+            <div class="bundle-meta"></div>
+          </div>
+          <div class="bundle-item" id="bundle-cpp">
+            ⚡ C++: <span>checking…</span>
+            <div class="bundle-meta"></div>
+          </div>
+          <div class="bundle-item" id="bundle-python">
+            🐍 Python: <span>checking…</span>
+            <div class="bundle-meta"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-title">WORKSPACE</div>
+        <div class="sidebar-inline-actions">
+          <button class="tool-btn sidebar-mini-btn" id="btn-refresh-repo" title="Refresh git status">↻</button>
+          <button class="tool-btn sidebar-mini-btn" id="btn-open-remote" title="Open remote URL">↗</button>
+        </div>
+        <div id="repo-status">
+          <div id="repo-branch">No git repo</div>
+          <div id="repo-dirty"></div>
+          <div id="repo-root"></div>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-title">VSCODE IMPORT</div>
+        <div id="vscode-import-summary">
+          <span id="vscode-import-count">0 snippets</span>
+          <button class="tool-btn sidebar-mini-btn" id="btn-import-vscode-ext" title="Import unpacked VSCode extension folder">+ Import</button>
+        </div>
+        <div id="vscode-imports-list"></div>
       </div>
     </aside>
 
@@ -180,17 +214,32 @@
           <label>Memory Limit (MB)
             <input type="number" id="setting-memory-limit" min="32" max="1024" step="32" />
           </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="setting-usaco-mode" /> Enable USACO file mode
+          </label>
+          <label>USACO Problem Base Name
+            <input type="text" id="setting-usaco-problem" placeholder="problem" />
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="setting-usaco-file-input" /> Use &lt;problem&gt;.in when custom input is empty
+          </label>
         </div>
         <div class="settings-section">
           <h3>Language Paths</h3>
+          <label class="checkbox-label">
+            <input type="checkbox" id="setting-auto-pick-bundle" /> Auto pick best installed bundle
+          </label>
           <label>Java Binary (leave blank for auto)
             <input type="text" id="setting-java-path" placeholder="e.g. /usr/bin/java" />
           </label>
+          <label>Javac Binary (leave blank for auto)
+            <input type="text" id="setting-javac-path" placeholder="e.g. /usr/bin/javac" />
+          </label>
           <label>C++ Compiler
-            <input type="text" id="setting-cpp-compiler" placeholder="g++" />
+            <input type="text" id="setting-cpp-compiler" placeholder="g++ / clang++ / cl" />
           </label>
           <label>Python Binary
-            <input type="text" id="setting-python-path" placeholder="python3" />
+            <input type="text" id="setting-python-path" placeholder="python3 or py -3" />
           </label>
         </div>
       </div>

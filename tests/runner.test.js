@@ -8,6 +8,10 @@
 const { runCode } = require('../src/main/runner');
 const { runTestCases } = require('../src/main/test-runner');
 const { detectBundles } = require('../src/main/bundle-manager');
+const { importVSCodeExtensionFolder } = require('../src/main/vscode-importer');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 let passed = 0;
 let failed = 0;
@@ -146,6 +150,61 @@ test('detectBundles returns correct structure', async () => {
   assert(result.cpp.available, 'C++ should be available (status: ' + result.cpp.status + ')');
 });
 
+// ─── VSCode Importer Tests ────────────────────────────────────────────────────
+test('VSCode importer: imports Java/C++/Python snippets from unpacked extension', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'compide-vscode-test-'));
+  try {
+    const snippetsDir = path.join(tempRoot, 'snippets');
+    fs.mkdirSync(snippetsDir, { recursive: true });
+
+    fs.writeFileSync(path.join(tempRoot, 'package.json'), JSON.stringify({
+      name: 'sample-snippets',
+      displayName: 'Sample Snippets',
+      version: '1.0.0',
+      contributes: {
+        snippets: [
+          { language: 'java', path: './snippets/java.json' },
+          { language: 'cpp', path: './snippets/cpp.json' },
+          { language: 'python', path: './snippets/python.json' },
+        ],
+      },
+    }, null, 2));
+
+    fs.writeFileSync(path.join(snippetsDir, 'java.json'), JSON.stringify({
+      FastScanner: {
+        prefix: 'fastio',
+        body: ['BufferedReader br = new BufferedReader(new InputStreamReader(System.in));'],
+        description: 'Fast Java I/O',
+      },
+    }, null, 2));
+
+    fs.writeFileSync(path.join(snippetsDir, 'cpp.json'), JSON.stringify({
+      Main: {
+        prefix: 'cpmain',
+        body: ['int main(){', '    ios::sync_with_stdio(false);', '    cin.tie(nullptr);', '}'],
+        description: 'C++ main',
+      },
+    }, null, 2));
+
+    fs.writeFileSync(path.join(snippetsDir, 'python.json'), JSON.stringify({
+      Main: {
+        prefix: ['pyfast', 'solve'],
+        body: ['def solve():', '    pass', '', "if __name__ == '__main__':", '    solve()'],
+        description: 'Python solve template',
+      },
+    }, null, 2));
+
+    const result = importVSCodeExtensionFolder(tempRoot);
+    assert(result.ok, 'Import should succeed');
+    assert(result.snippetCount >= 4, 'Expected at least 4 snippets including multiple Python prefixes');
+    assert(result.snippetsByLanguage.java.length >= 1, 'Java snippets imported');
+    assert(result.snippetsByLanguage.cpp.length >= 1, 'C++ snippets imported');
+    assert(result.snippetsByLanguage.python.length >= 2, 'Python snippets imported');
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 // ─── Run All ──────────────────────────────────────────────────────────────────
 async function main() {
   const groups = [
@@ -154,6 +213,7 @@ async function main() {
     { name: 'Python Runner', prefix: 'Python' },
     { name: 'Test Runner', prefix: 'Test runner' },
     { name: 'Bundle Manager', prefix: 'detectBundles' },
+    { name: 'VSCode Importer', prefix: 'VSCode importer' },
   ];
 
   for (const group of groups) {
