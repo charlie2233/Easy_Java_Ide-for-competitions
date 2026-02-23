@@ -664,59 +664,6 @@ window.finishSetup = async function() {
   loadInitialContent();
 };
 
-// ─── Setup / Onboarding ───────────────────────────────────────────────────────
-function showSetupModal() {
-  document.getElementById('setup-overlay').classList.remove('hidden');
-  updateSetupLang(); // Trigger check for default lang
-}
-
-window.selectSetupTheme = function(theme) {
-  document.querySelectorAll('.theme-card').forEach(c => c.classList.remove('selected'));
-  document.querySelector(`.theme-card[data-theme="${theme}"]`).classList.add('selected');
-  applyTheme(theme); // Live preview
-};
-
-window.updateSetupLang = async function() {
-  const lang = document.getElementById('setup-lang-select').value;
-  const statusEl = document.getElementById('setup-lang-status');
-  statusEl.textContent = 'Checking availability...';
-  statusEl.style.color = 'var(--text-secondary)';
-  
-  // Quick check
-  let bundles = bundlesState;
-  if (!bundles) {
-    bundles = await window.electronAPI.detectBundles();
-  }
-  const info = bundles[lang];
-  
-  if (info && info.available) {
-    statusEl.textContent = `✓ Found: ${info.version || 'Ready'}`;
-    statusEl.style.color = 'var(--success)';
-  } else {
-    statusEl.textContent = `✗ Not found. You can install it later.`;
-    statusEl.style.color = 'var(--warning)';
-  }
-};
-
-window.finishSetup = async function() {
-  const theme = document.querySelector('.theme-card.selected').dataset.theme;
-  const lang = document.getElementById('setup-lang-select').value;
-  
-  settings.theme = theme;
-  settings.language = lang;
-  settings.setupComplete = true;
-  
-  await window.electronAPI.setSetting('theme', theme);
-  await window.electronAPI.setSetting('language', lang);
-  await window.electronAPI.setSetting('setupComplete', true);
-  
-  document.getElementById('setup-overlay').classList.add('hidden');
-  
-  // Apply changes
-  applyTheme(theme);
-  loadInitialContent();
-};
-
 // ─── Monaco Editor ────────────────────────────────────────────────────────────
 function initEditor() {
   const monacoTheme = settings.theme === 'light' ? 'vs' : settings.theme === 'hc-black' ? 'hc-black' : 'vs-dark';
