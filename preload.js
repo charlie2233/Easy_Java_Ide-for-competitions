@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Environment
   getEnvInfo: () => ipcRenderer.invoke('env:info'),
+  getAssetUrl: (relativePath) => ipcRenderer.invoke('app:get-asset-url', relativePath),
   openPath: (p) => ipcRenderer.invoke('shell:open-path', p),
   openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
   openTerminal: (targetPath) => ipcRenderer.invoke('shell:open-terminal', targetPath),

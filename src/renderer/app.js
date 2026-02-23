@@ -2009,14 +2009,26 @@ async function updateBundleStatus() {
 }
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
-function initializeBrandingAssets() {
-  const candidateSources = ['../../assets/icons/logo.png', '../../assets/icons/icon.png'];
+async function initializeBrandingAssets() {
+  const candidateSources = [];
+  const packagedCandidates = ['assets/icons/logo.png', 'assets/icons/icon.png'];
+  if (window.electronAPI?.getAssetUrl) {
+    for (const relPath of packagedCandidates) {
+      try {
+        const assetUrl = await window.electronAPI.getAssetUrl(relPath);
+        if (assetUrl) candidateSources.push(assetUrl);
+      } catch (_) {
+        // Fall back to relative paths below.
+      }
+    }
+  }
+  candidateSources.push('../../assets/icons/logo.png', '../../assets/icons/icon.png');
+
   ['welcome-logo', 'sidebar-logo'].forEach((id) => {
     const img = document.getElementById(id);
     if (!img) return;
 
     let idx = 0;
-    img.src = candidateSources[idx];
     img.onerror = () => {
       idx += 1;
       if (idx < candidateSources.length) {
@@ -2025,6 +2037,7 @@ function initializeBrandingAssets() {
         img.style.display = 'none';
       }
     };
+    img.src = candidateSources[idx];
   });
 }
 

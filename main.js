@@ -5,6 +5,7 @@ const { execFile, spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { pathToFileURL } = require('url');
 
 // Settings store (lazy-loaded to avoid ES module issues)
 let store;
@@ -276,6 +277,19 @@ ipcMain.handle('env:info', () => ({
   homedir: os.homedir(),
   tmpdir: os.tmpdir(),
 }));
+
+ipcMain.handle('app:get-asset-url', (_e, relativePath) => {
+  try {
+    if (typeof relativePath !== 'string' || !relativePath) return null;
+    const appRoot = path.resolve(__dirname);
+    const target = path.resolve(appRoot, relativePath);
+    if (target !== appRoot && !target.startsWith(`${appRoot}${path.sep}`)) return null;
+    if (!fs.existsSync(target)) return null;
+    return pathToFileURL(target).toString();
+  } catch (_) {
+    return null;
+  }
+});
 
 ipcMain.handle('shell:open-path', (_e, p) => shell.openPath(p));
 ipcMain.handle('shell:open-external', (_e, url) => shell.openExternal(url));
