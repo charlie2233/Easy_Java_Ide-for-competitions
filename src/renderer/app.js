@@ -419,6 +419,9 @@ let workspaceRoot = null;
 const expandedProjectDirs = new Set();
 let autoSaveIntervalId = null;
 let autoSaveInFlight = false;
+let openEditorDocs = [];
+let currentDocId = null;
+let nextUntitledDocId = 1;
 
 const AUTO_SAVE_INTERVAL_MS = 4000;
 
@@ -429,6 +432,159 @@ function renderBootError(message) {
   el.id = 'boot-error';
   el.textContent = message;
   document.body.appendChild(el);
+}
+
+function detectLanguageFromFilePath(filePath, fallback = 'java') {
+  if (!filePath) return fallback;
+  const ext = (filePath.split('.').pop() || '').toLowerCase();
+  return ({ java: 'java', cpp: 'cpp', cc: 'cpp', c: 'cpp', py: 'python' }[ext] || fallback);
+}
+
+function normalizeDocPath(value) {
+  return (value || '').replace(/\\/g, '/');
+}
+
+function getActiveEditorDoc() {
+  return openEditorDocs.find((doc) => doc.id === currentDocId) || null;
+}
+
+function getEditorDocDisplayName(doc) {
+  if (!doc) return `untitled.${settings.language || 'java'}`;
+  if (doc.filePath) return basenameSafe(doc.filePath);
+  const lang = doc.language || settings.language || 'java';
+  const ext = lang === 'cpp' ? 'cpp' : lang === 'python' ? 'py' : 'java';
+  const suffix = doc.untitledIndex > 1 ? `-${doc.untitledIndex}` : '';
+  return `untitled${suffix}.${ext}`;
+}
+
+function findOpenDocByPath(filePath) {
+  const target = normalizeDocPath(filePath);
+  if (!target) return null;
+  return openEditorDocs.find((doc) => doc.filePath && normalizeDocPath(doc.filePath) === target) || null;
+}
+
+function createEditorDoc({ filePath = null, content = '', language = null, isDirty: dirty = false } = {}) {
+  const resolvedLanguage = language || detectLanguageFromFilePath(filePath, settings.language || 'java');
+  const model = monaco.editor.createModel(content, langToMonaco(resolvedLanguage));
+  const doc = {
+    id: `doc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    filePath,
+    language: resolvedLanguage,
+    model,
+    isDirty: !!dirty,
+    untitledIndex: filePath ? null : nextUntitledDocId++,
+  };
+  openEditorDocs.push(doc);
+  return doc;
+}
+
+function syncActiveDocLegacyState() {
+  const doc = getActiveEditorDoc();
+  currentFilePath = doc?.filePath || null;
+  isDirty = !!doc?.isDirty;
+}
+
+function applyEditorLanguageToUI(lang) {
+  if (!lang) return;
+  document.getElementById('lang-select').value = lang;
+  settings.language = lang;
+  updateLangBadge(lang);
+  document.getElementById('sb-lang').textContent = { java: 'Java', cpp: 'C++', python: 'Python' }[lang] || lang;
+}
+
+function renderEditorTabs() {
+  const container = document.getElementById('editor-tabs');
+  if (!container) return;
+  container.innerHTML = '';
+
+  const frag = document.createDocumentFragment();
+  openEditorDocs.forEach((doc) => {
+    const tab = document.createElement('button');
+    tab.className = `editor-tab${doc.id === currentDocId ? ' active' : ''}`;
+    tab.type = 'button';
+    tab.title = doc.filePath || getEditorDocDisplayName(doc);
+
+    const label = document.createElement('span');
+    label.className = 'editor-tab-label';
+    label.textContent = `${doc.isDirty ? '● ' : ''}${getEditorDocDisplayName(doc)}`;
+
+    const close = document.createElement('span');
+    close.className = 'editor-tab-close';
+    close.textContent = '×';
+    close.title = 'Close file';
+
+    tab.appendChild(label);
+    tab.appendChild(close);
+
+    tab.addEventListener('click', (e) => {
+      if (e.target === close) {
+        e.stopPropagation();
+        void closeEditorDoc(doc.id);
+        return;
+      }
+      switchToEditorDoc(doc.id);
+    });
+
+    frag.appendChild(tab);
+  });
+
+  container.appendChild(frag);
+}
+
+function switchToEditorDoc(docId) {
+  const doc = openEditorDocs.find((item) => item.id === docId);
+  if (!doc || !editor) return;
+  currentDocId = doc.id;
+  editor.setModel(doc.model);
+  syncActiveDocLegacyState();
+  setEditorLanguage(doc.language);
+  applyEditorLanguageToUI(doc.language);
+  updateTitle();
+  renderEditorTabs();
+  toggleWelcomeScreen();
+  refreshGitStatus();
+  refreshProjectTree();
+}
+
+function updateActiveDocMeta(mutator) {
+  const doc = getActiveEditorDoc();
+  if (!doc) return null;
+  mutator(doc);
+  syncActiveDocLegacyState();
+  updateTitle();
+  renderEditorTabs();
+  return doc;
+}
+
+async function closeEditorDoc(docId) {
+  const doc = openEditorDocs.find((item) => item.id === docId);
+  if (!doc) return;
+  if (doc.isDirty && !confirm(`Close without saving changes to ${getEditorDocDisplayName(doc)}?`)) return;
+
+  if (openEditorDocs.length === 1) {
+    // Keep one editable surface alive.
+    const idx = openEditorDocs.findIndex((d) => d.id === docId);
+    if (idx >= 0) {
+      openEditorDocs[idx].model.dispose();
+      openEditorDocs.splice(idx, 1);
+    }
+    const fresh = createEditorDoc({ content: '', language: settings.language || 'java', isDirty: false });
+    switchToEditorDoc(fresh.id);
+    toggleWelcomeScreen(true);
+    return;
+  }
+
+  const currentIndex = openEditorDocs.findIndex((d) => d.id === docId);
+  if (currentIndex < 0) return;
+  const [removed] = openEditorDocs.splice(currentIndex, 1);
+  if (removed.model) removed.model.dispose();
+
+  if (currentDocId === docId) {
+    const nextDoc = openEditorDocs[Math.max(0, currentIndex - 1)] || openEditorDocs[0];
+    if (nextDoc) switchToEditorDoc(nextDoc.id);
+  } else {
+    renderEditorTabs();
+  }
 }
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
@@ -454,10 +610,7 @@ window.require(['vs/editor/editor.main'], async function () {
   refreshGitStatus();
   refreshProjectTree();
   loadRecentFiles();
-  // Check for first run
-  if (!settings.setupComplete) {
-    showSetupModal();
-  }
+  // Always start on the in-editor welcome page instead of the setup popup.
 });
 }
 
@@ -599,8 +752,9 @@ function initEditor() {
 
   // Track dirty state and content changes
   editor.onDidChangeModelContent(() => {
-    isDirty = true;
-    updateTitle();
+    updateActiveDocMeta((doc) => {
+      doc.isDirty = true;
+    });
     toggleWelcomeScreen(); // Let function decide based on content
     markAllTestCasesStale('Code changed. Re-run tests.');
   });
@@ -627,18 +781,19 @@ function startAutoSaveLoop() {
 }
 
 async function autoSaveCurrentFile() {
-  if (autoSaveInFlight || !editor || !currentFilePath || !isDirty) return;
-  const model = editor.getModel();
+  const activeDoc = getActiveEditorDoc();
+  if (autoSaveInFlight || !editor || !activeDoc?.filePath || !activeDoc.isDirty) return;
+  const model = activeDoc.model || editor.getModel();
   if (!model) return;
 
   const versionBefore = typeof model.getAlternativeVersionId === 'function'
     ? model.getAlternativeVersionId()
     : model.getVersionId();
-  const content = editor.getValue();
+  const content = model.getValue();
 
   autoSaveInFlight = true;
   try {
-    const { ok } = await window.electronAPI.writeFile(currentFilePath, content);
+    const { ok } = await window.electronAPI.writeFile(activeDoc.filePath, content);
     if (!ok) return;
 
     const versionAfter = typeof model.getAlternativeVersionId === 'function'
@@ -647,8 +802,12 @@ async function autoSaveCurrentFile() {
 
     // Only clear dirty state if the user didn't type during the autosave write.
     if (versionAfter === versionBefore) {
-      isDirty = false;
-      updateTitle();
+      if (activeDoc.id === currentDocId) {
+        updateActiveDocMeta((doc) => { doc.isDirty = false; });
+      } else {
+        activeDoc.isDirty = false;
+        renderEditorTabs();
+      }
     }
   } catch (_) {
     // Keep autosave silent; manual save still surfaces write failures.
@@ -684,37 +843,26 @@ function setEditorLanguage(lang) {
   if (!editor) return;
   const model = editor.getModel();
   if (model) monaco.editor.setModelLanguage(model, langToMonaco(lang));
+  const doc = getActiveEditorDoc();
+  if (doc) {
+    doc.language = lang;
+    renderEditorTabs();
+  }
 }
 
 // ─── Initial Content ──────────────────────────────────────────────────────────
 function loadInitialContent() {
   const lang = settings.language || 'java';
-  updateLangBadge(lang);
-  document.getElementById('lang-select').value = lang;
-  
-  // If no previous file was loaded (or explicitly asking for welcome), show it?
-  // But our "default" is a template. Let's start with the template to be helpful.
-  // The user can clear it to see the welcome screen if they want.
-  
-  const templateKey = lang === 'java'
-    ? 'java-usaco'
-    : lang === 'cpp'
-      ? 'cpp-usaco'
-      : lang === 'python'
-        ? 'python-usaco'
-        : null;
-  if (templateKey) {
-    editor.setValue(TEMPLATES[templateKey]);
-    // It's a template, so technically not dirty yet, but it has content.
-    // Let's treat it as "clean" new file.
-    isDirty = false;
-    currentFilePath = null;
-    updateTitle();
-    toggleWelcomeScreen(false); // Has content
-  } else {
-    // Empty
-    toggleWelcomeScreen(true);
-  }
+  applyEditorLanguageToUI(lang);
+  const bootstrapModel = editor.getModel();
+  if (bootstrapModel && openEditorDocs.length === 0) bootstrapModel.dispose();
+  openEditorDocs.forEach((doc) => doc.model?.dispose());
+  openEditorDocs = [];
+  currentDocId = null;
+
+  const doc = createEditorDoc({ content: '', language: lang, isDirty: false });
+  switchToEditorDoc(doc.id);
+  toggleWelcomeScreen(true);
 }
 
 // ─── UI Wiring ────────────────────────────────────────────────────────────────
@@ -749,6 +897,7 @@ function wireUI() {
   // Welcome Screen
   bind('btn-welcome-new', 'click', newFile, true);
   bind('btn-welcome-open', 'click', openFile, true);
+  bind('btn-welcome-folder', 'click', chooseProjectFolder, true);
 
   // Language selector
   bind('lang-select', 'change', (e) => {
@@ -768,13 +917,14 @@ function wireUI() {
       if (TEMPLATES[key]) {
         if (!isDirty || confirm('Replace current code with template?')) {
           editor.setValue(TEMPLATES[key]);
-          isDirty = false;
+          updateActiveDocMeta((doc) => { doc.isDirty = false; });
           // Set language based on template key prefix.
           const langPrefix = (key || '').split('-')[0];
           if (['java', 'cpp', 'python'].includes(langPrefix)) {
             document.getElementById('lang-select').value = langPrefix;
             document.getElementById('lang-select').dispatchEvent(new Event('change'));
           }
+          toggleWelcomeScreen(false);
         }
       }
     });
@@ -932,38 +1082,27 @@ function setupResizer() {
 
 // ─── File Operations ──────────────────────────────────────────────────────────
 function updateTitle() {
-  const name = currentFilePath
-    ? currentFilePath.split('/').pop().split('\\').pop()
-    : `untitled.${settings.language || 'java'}`;
-  document.getElementById('file-name').textContent = (isDirty ? '● ' : '') + name;
+  const activeDoc = getActiveEditorDoc();
+  const name = getEditorDocDisplayName(activeDoc);
+  document.getElementById('file-name').textContent = ((activeDoc?.isDirty || false) ? '● ' : '') + name;
 }
 
 function newFile() {
-  if (isDirty && !confirm('Discard unsaved changes?')) return;
-  editor.setValue('');
-  currentFilePath = null;
-  isDirty = false;
-  updateTitle();
-  refreshGitStatus();
-  toggleWelcomeScreen(true); // Empty file shows welcome screen? Or maybe just empty.
-  // Usually "New File" means "I want to type". So let's focus editor and hide welcome screen if user starts typing.
-  // Actually, let's keep it visible until they type, OR insert a template.
-  // Let's insert the default template again for convenience.
-  const lang = settings.language || 'java';
-  const templateKey = lang === 'java'
-    ? 'java-usaco'
-    : lang === 'cpp'
-      ? 'cpp-usaco'
-      : lang === 'python'
-        ? 'python-usaco'
-        : null;
-  if (templateKey) {
-    editor.setValue(TEMPLATES[templateKey]);
+  const activeDoc = getActiveEditorDoc();
+  if (activeDoc && !activeDoc.filePath && !activeDoc.isDirty && !activeDoc.model.getValue().trim()) {
     toggleWelcomeScreen(false);
-  } else {
-    toggleWelcomeScreen(true);
+    editor.focus();
+    return;
   }
-  refreshProjectTree();
+
+  const doc = createEditorDoc({
+    content: '',
+    language: settings.language || 'java',
+    isDirty: false,
+  });
+  switchToEditorDoc(doc.id);
+  toggleWelcomeScreen(true);
+  editor.focus();
 }
 
 async function openFile() {
@@ -976,27 +1115,43 @@ async function openFile() {
 }
 
 function openFileContent(filePath, content) {
-  editor.setValue(content);
-  currentFilePath = filePath;
-  isDirty = false;
-  updateTitle();
+  const existing = findOpenDocByPath(filePath);
+  if (existing) {
+    if (existing.isDirty && existing.model.getValue() !== content) {
+      if (!confirm(`Reload ${basenameSafe(filePath)} from disk and discard unsaved changes in that tab?`)) {
+        switchToEditorDoc(existing.id);
+        return;
+      }
+    }
+    existing.model.setValue(content);
+    existing.isDirty = false;
+    existing.language = detectLanguageFromFilePath(filePath, existing.language || settings.language || 'java');
+    switchToEditorDoc(existing.id);
+  } else {
+    const lang = detectLanguageFromFilePath(filePath, settings.language || 'java');
+    const activeDoc = getActiveEditorDoc();
+    const canReuseActiveEmptyTab = activeDoc
+      && !activeDoc.filePath
+      && !activeDoc.isDirty
+      && !activeDoc.model.getValue().trim()
+      && openEditorDocs.length === 1;
+
+    if (canReuseActiveEmptyTab) {
+      activeDoc.filePath = filePath;
+      activeDoc.language = lang;
+      activeDoc.model.setValue(content);
+      activeDoc.isDirty = false;
+      switchToEditorDoc(activeDoc.id);
+    } else {
+      const doc = createEditorDoc({ filePath, content, language: lang, isDirty: false });
+      switchToEditorDoc(doc.id);
+    }
+  }
+
   window.electronAPI.addRecentFile(filePath);
   toggleWelcomeScreen(false);
 
-  // Auto-detect language
-  const ext = filePath.split('.').pop().toLowerCase();
-  const langMap = { java: 'java', cpp: 'cpp', cc: 'cpp', c: 'cpp', py: 'python' };
-  const lang = langMap[ext] || 'java';
-  
-  // Update UI
-  document.getElementById('lang-select').value = lang;
-  settings.language = lang; // Temp update
-  setEditorLanguage(lang);
-  updateLangBadge(lang);
-  document.getElementById('sb-lang').textContent = { java: 'Java', cpp: 'C++', python: 'Python' }[lang] || lang;
-
   loadRecentFiles();
-  refreshGitStatus();
 
   if (!workspaceRoot || !isPathInsideRoot(filePath, workspaceRoot)) {
     void setWorkspaceRoot(requirePathDirname(filePath), true);
@@ -1006,31 +1161,40 @@ function openFileContent(filePath, content) {
 }
 
 async function saveFile() {
-  if (!currentFilePath) return saveFileAs();
-  await writeCurrentFile(currentFilePath);
+  const activeDoc = getActiveEditorDoc();
+  if (!activeDoc?.filePath) return saveFileAs();
+  await writeCurrentFile(activeDoc.filePath);
 }
 
 async function saveFileAs() {
-  const defaultName = currentFilePath || `Main.${settings.language === 'cpp' ? 'cpp' : settings.language === 'python' ? 'py' : 'java'}`;
+  const activeDoc = getActiveEditorDoc();
+  const fallbackExt = settings.language === 'cpp' ? 'cpp' : settings.language === 'python' ? 'py' : 'java';
+  const defaultName = activeDoc?.filePath || `Main.${fallbackExt}`;
   const result = await window.electronAPI.saveFileDialog(defaultName);
-  if (result.canceled) return;
+  if (result.canceled || !result.filePath) return;
   await writeCurrentFile(result.filePath);
-  currentFilePath = result.filePath;
-  updateTitle();
-  window.electronAPI.addRecentFile(currentFilePath);
-  loadRecentFiles();
 }
 
 async function writeCurrentFile(filePath) {
   if (settings.formatOnSave) {
     await formatCode();
   }
-  const content = editor.getValue();
+  const activeDoc = getActiveEditorDoc();
+  if (!activeDoc) return;
+  const content = activeDoc.model.getValue();
   const { ok, error } = await window.electronAPI.writeFile(filePath, content);
   if (!ok) { alert('Error saving: ' + error); return; }
-  isDirty = false;
-  currentFilePath = filePath;
+  const savedLanguage = detectLanguageFromFilePath(filePath, activeDoc.language || settings.language || 'java');
+  activeDoc.filePath = filePath;
+  activeDoc.language = savedLanguage;
+  activeDoc.isDirty = false;
+  syncActiveDocLegacyState();
+  applyEditorLanguageToUI(savedLanguage);
+  setEditorLanguage(savedLanguage);
   updateTitle();
+  renderEditorTabs();
+  window.electronAPI.addRecentFile(filePath);
+  loadRecentFiles();
   refreshGitStatus();
 }
 
