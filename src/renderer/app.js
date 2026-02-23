@@ -1228,6 +1228,81 @@ async function runCodeWithInput() {
   await executeAndShow(code, language, input);
 }
 
+function extractLikelyErrorLocation(rawText = '') {
+  const text = String(rawText || '');
+  const patterns = [
+    /([^\s:]+\.(?:java)):(\d+):(?:\s*(\d+):)?\s+error:/i,
+    /([^\s:]+\.(?:cpp|cc|c|hpp|h)):(\d+):(?:\s*(\d+):)?\s+(?:fatal\s+)?error:/i,
+    /File "([^"]+)", line (\d+)/,
+    /at [\w$_.<>]+\(([^:()]+):(\d+)\)/,
+  ];
+
+  for (const pattern of patterns) {
+    const m = text.match(pattern);
+    if (!m) continue;
+    return {
+      file: basenameSafe(m[1]),
+      line: Number(m[2] || 0) || null,
+      column: m[3] ? (Number(m[3]) || null) : null,
+    };
+  }
+
+  return null;
+}
+
+function explainErrorCause(rawText = '', phase = 'error') {
+  const text = String(rawText || '');
+  const ruleSets = [
+    [/cannot find symbol/i, 'Unknown variable/class/method name, or a missing import/definition.'],
+    [/\b(incompatible types|cannot be converted to)\b/i, 'A value type does not match the variable/parameter return type.'],
+    [/';' expected/i, 'A semicolon is likely missing near the reported line.'],
+    [/\bwas not declared in this scope\b/i, 'You are using a variable/function before declaring it.'],
+    [/\bundefined reference to\b/i, 'A function or symbol was declared but not linked/defined correctly.'],
+    [/\bSyntaxError\b/i, 'Python syntax is invalid near the reported line (typo, colon, parentheses, etc.).'],
+    [/\bIndentationError\b/i, 'Python indentation levels do not match (spaces/tabs or block indentation).'],
+    [/\bNameError\b/i, 'Python variable/function name is used before it is defined.'],
+    [/\bTypeError\b/i, 'An operation or function call received a value of the wrong type.'],
+    [/\bValueError\b/i, 'A value has the right type but an invalid format/content.'],
+    [/\bIndexError\b/i, 'An array/list/string index is out of range.'],
+    [/\bKeyError\b/i, 'A dictionary/map key was missing.'],
+    [/\bZeroDivisionError\b/i, 'Code attempted to divide by zero.'],
+    [/\bNullPointerException\b/i, 'A Java object reference is null where a value/object is required.'],
+    [/\bArrayIndexOutOfBoundsException\b/i, 'Java array index is outside valid bounds.'],
+    [/\bNumberFormatException\b/i, 'Input parsing failed because a value was not a valid number.'],
+    [/\bsegmentation fault\b|\bSIGSEGV\b/i, 'Invalid memory access (bad pointer/index) likely caused a crash.'],
+  ];
+
+  for (const [regex, explanation] of ruleSets) {
+    if (regex.test(text)) return explanation;
+  }
+
+  if (phase === 'compile') return 'Compiler reported a syntax/type/build issue. Check the first error and fix top-down.';
+  if (phase === 'runtime') return 'Program crashed while running. Check the stack trace / error line and input assumptions.';
+  return null;
+}
+
+function formatExecutionDiagnosticOutput({ phase, rawText, fallbackText = '', includeRawHeader = true }) {
+  const raw = String(rawText || fallbackText || '').trimEnd();
+  const location = extractLikelyErrorLocation(raw);
+  const explanation = explainErrorCause(raw, phase === 'Compile Error' ? 'compile' : 'runtime');
+
+  const lines = [];
+  lines.push(`[Diagnostic] ${phase}`);
+  if (location?.file) {
+    let loc = location.file;
+    if (location.line) loc += `:${location.line}`;
+    if (location.column) loc += `:${location.column}`;
+    lines.push(`Likely location: ${loc}`);
+  }
+  if (explanation) {
+    lines.push(`Possible cause: ${explanation}`);
+  }
+
+  if (!raw) return lines.join('\n');
+  if (!includeRawHeader) return `${lines.join('\n')}\n\n${raw}`;
+  return `${lines.join('\n')}\n\n--- Raw Output ---\n${raw}`;
+}
+
 async function executeAndShow(code, language, input) {
   setStatus('running', 'Running...');
   document.getElementById('output-area').textContent = '';
@@ -1252,7 +1327,11 @@ async function executeAndShow(code, language, input) {
 
     if (result.compileError) {
       setStatus('error', 'Compile Error');
-      output.textContent = result.stderr || 'Compilation failed.';
+      output.textContent = formatExecutionDiagnosticOutput({
+        phase: 'Compile Error',
+        rawText: result.stderr || result.stdout || '',
+        fallbackText: 'Compilation failed.',
+      });
       output.style.color = 'var(--error)';
     } else if (result.timedOut) {
       setStatus('tle', 'Time Limit Exceeded');
@@ -1260,7 +1339,11 @@ async function executeAndShow(code, language, input) {
       output.style.color = 'var(--warning)';
     } else if (result.exitCode !== 0) {
       setStatus('error', 'Runtime Error');
-      output.textContent = result.stdout + (result.stderr ? '\n--- stderr ---\n' + result.stderr : '');
+      output.textContent = formatExecutionDiagnosticOutput({
+        phase: 'Runtime Error',
+        rawText: [result.stderr || '', result.stdout || ''].filter(Boolean).join('\n'),
+        fallbackText: 'Program exited with a non-zero status.',
+      });
       output.style.color = 'var(--error)';
     } else {
       setStatus('ok', 'Completed');
@@ -1285,7 +1368,11 @@ async function executeAndShow(code, language, input) {
     }
   } catch (err) {
     setStatus('error', 'Execution Error');
-    document.getElementById('output-area').textContent = err.message;
+    document.getElementById('output-area').textContent = formatExecutionDiagnosticOutput({
+      phase: 'Execution Error',
+      rawText: err?.stack || err?.message || String(err),
+      fallbackText: 'Unexpected application error during execution.',
+    });
   } finally {
     document.getElementById('btn-run').disabled = false;
     document.getElementById('btn-stop').disabled = true;
@@ -1615,7 +1702,12 @@ function updateTestCaseResult(tc, result) {
     badge.textContent = 'COMPILE';
     timeEl.textContent = '';
     actualSection.style.display = '';
-    actualEl.textContent = result.stderr || 'Compile error';
+    actualEl.textContent = formatExecutionDiagnosticOutput({
+      phase: 'Compile Error',
+      rawText: result.stderr || result.actualOutput || '',
+      fallbackText: 'Compile error',
+      includeRawHeader: false,
+    });
     actualEl.className = 'test-io-text tc-actual test-actual-fail';
     setTestCaseCompareNote(tc.id, 'Compilation failed', true);
   } else if (result.timedOut) {
@@ -1623,6 +1715,19 @@ function updateTestCaseResult(tc, result) {
     badge.textContent = 'TLE';
     timeEl.textContent = `>${settings.timeLimitMs || 5000}ms`;
     setTestCaseCompareNote(tc.id, 'Time limit exceeded', true);
+  } else if (result.exitCode !== 0) {
+    badge.className = 'test-result-badge result-fail';
+    badge.textContent = 'RUNTIME';
+    timeEl.textContent = `${result.timeMs || 0}ms`;
+    actualSection.style.display = '';
+    actualEl.textContent = formatExecutionDiagnosticOutput({
+      phase: 'Runtime Error',
+      rawText: [result.stderr || '', result.actualOutput || ''].filter(Boolean).join('\n'),
+      fallbackText: 'Program exited with a runtime error.',
+      includeRawHeader: false,
+    });
+    actualEl.className = 'test-io-text tc-actual test-actual-fail';
+    setTestCaseCompareNote(tc.id, 'Runtime error while executing sample', true);
   } else if (result.passed) {
     badge.className = 'test-result-badge result-pass';
     badge.textContent = 'PASS';
