@@ -417,6 +417,10 @@ let importedSnippets = { java: [], cpp: [], python: [] };
 let snippetProviders = [];
 let workspaceRoot = null;
 const expandedProjectDirs = new Set();
+let autoSaveIntervalId = null;
+let autoSaveInFlight = false;
+
+const AUTO_SAVE_INTERVAL_MS = 4000;
 
 function renderBootError(message) {
   const existing = document.getElementById('boot-error');
@@ -442,6 +446,7 @@ window.require(['vs/editor/editor.main'], async function () {
   wireUI();
   initializeBrandingAssets();
   await setSidebarCollapsed(settings.sidebarCollapsed === true, false);
+  startAutoSaveLoop();
   loadCustomInputFromStorage();
   loadTestCasesFromStorage();
   initSubmissionPanel();
@@ -614,6 +619,44 @@ function initEditor() {
   window.addEventListener('resize', () => editor.layout());
 }
 
+function startAutoSaveLoop() {
+  if (autoSaveIntervalId) clearInterval(autoSaveIntervalId);
+  autoSaveIntervalId = window.setInterval(() => {
+    void autoSaveCurrentFile();
+  }, AUTO_SAVE_INTERVAL_MS);
+}
+
+async function autoSaveCurrentFile() {
+  if (autoSaveInFlight || !editor || !currentFilePath || !isDirty) return;
+  const model = editor.getModel();
+  if (!model) return;
+
+  const versionBefore = typeof model.getAlternativeVersionId === 'function'
+    ? model.getAlternativeVersionId()
+    : model.getVersionId();
+  const content = editor.getValue();
+
+  autoSaveInFlight = true;
+  try {
+    const { ok } = await window.electronAPI.writeFile(currentFilePath, content);
+    if (!ok) return;
+
+    const versionAfter = typeof model.getAlternativeVersionId === 'function'
+      ? model.getAlternativeVersionId()
+      : model.getVersionId();
+
+    // Only clear dirty state if the user didn't type during the autosave write.
+    if (versionAfter === versionBefore) {
+      isDirty = false;
+      updateTitle();
+    }
+  } catch (_) {
+    // Keep autosave silent; manual save still surfaces write failures.
+  } finally {
+    autoSaveInFlight = false;
+  }
+}
+
 function updateStatusBarCursor(position) {
   const el = document.getElementById('sb-cursor');
   if (el) el.textContent = `Ln ${position.lineNumber}, Col ${position.column}`;
@@ -714,6 +757,7 @@ function wireUI() {
     window.electronAPI.setSetting('language', lang);
     setEditorLanguage(lang);
     updateLangBadge(lang);
+    updateTitle();
     document.getElementById('sb-lang').textContent = { java: 'Java', cpp: 'C++', python: 'Python' }[lang] || lang;
   });
 
