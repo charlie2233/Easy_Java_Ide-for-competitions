@@ -2415,6 +2415,12 @@ body.theme-light .btn-primary {
   background: rgba(92, 157, 255, 0.10);
 }
 
+#run-estimate-time.metric-chip {
+  color: #d8e6fa;
+  border-color: rgba(144, 176, 221, 0.28);
+  background: rgba(126, 154, 197, 0.10);
+}
+
 #run-compile-time.metric-chip {
   border-color: rgba(255, 255, 255, 0.12);
 }

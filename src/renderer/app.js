@@ -426,8 +426,11 @@ let outputCopyResetTimer = null;
 let cppHelperContext = null;
 let setupInstallBusyLang = null;
 let setupInstallLogLines = [];
+let runTimeEstimateStore = null;
 
 const AUTO_SAVE_INTERVAL_MS = 4000;
+const RUN_ESTIMATE_STORAGE_KEY = 'comp-ide-exec-estimates-v1';
+const RUN_ESTIMATE_MAX_POINTS = 16;
 
 function renderBootError(message) {
   const existing = document.getElementById('boot-error');
@@ -494,6 +497,7 @@ function applyEditorLanguageToUI(lang) {
   settings.language = lang;
   updateLangBadge(lang);
   document.getElementById('sb-lang').textContent = { java: 'Java', cpp: 'C++', python: 'Python' }[lang] || lang;
+  renderEstimatedRunTimeMetric(lang);
 }
 
 function renderEditorTabs() {
@@ -890,10 +894,15 @@ window.setupAutoInstallMissing = async function() {
 function handleToolchainInstallEvent(event = {}) {
   const lang = String(event.language || '').toLowerCase();
   if (!lang) return;
+  const cppHelperOpen = !document.getElementById('cpp-helper-overlay')?.classList.contains('hidden');
+  const mirrorCppStatus = (message, tone = '') => {
+    if (lang === 'cpp' && cppHelperOpen) setCppHelperStatus(message, tone);
+  };
 
   if (event.phase === 'start') {
     setSetupInstallButtonsBusy(lang, true);
     setSetupInstallStatusLine(`Installing ${lang.toUpperCase()}...`, 'running');
+    mirrorCppStatus(`Installing ${lang.toUpperCase()}... (see Setup Environment log)`, 'ok');
     if (event.command) appendSetupInstallLog(`[${lang}] ${event.command}`, 'info');
     if (event.message) appendSetupInstallLog(`[${lang}] ${event.message}`, 'info');
     renderSetupBundleCards();
@@ -908,12 +917,14 @@ function handleToolchainInstallEvent(event = {}) {
   if (event.phase === 'info') {
     appendSetupInstallLog(`[${lang}] ${event.message || ''}`, 'info');
     if (event.message) setSetupInstallStatusLine(event.message, 'ok');
+    if (event.message) mirrorCppStatus(event.message, 'ok');
     return;
   }
 
   if (event.phase === 'error') {
     appendSetupInstallLog(`[${lang}] ${event.message || ''}`, 'error');
     setSetupInstallStatusLine(event.message || `Installer failed for ${lang}.`, 'error');
+    mirrorCppStatus(event.message || `Installer failed for ${lang}.`, 'error');
     setSetupInstallButtonsBusy(lang, false);
     renderSetupBundleCards();
     return;
@@ -925,6 +936,12 @@ function handleToolchainInstallEvent(event = {}) {
       event.ok
         ? `${lang.toUpperCase()} install process finished. Rescanning bundles...`
         : `${lang.toUpperCase()} installer exited with code ${event.code ?? 'unknown'}.`,
+      event.ok ? 'ok' : 'error',
+    );
+    mirrorCppStatus(
+      event.ok
+        ? 'Installer finished. Rescanning compilers…'
+        : `Installer exited with code ${event.code ?? 'unknown'}.`,
       event.ok ? 'ok' : 'error',
     );
     setSetupInstallButtonsBusy(lang, false);
@@ -1150,9 +1167,8 @@ function wireUI() {
     settings.language = lang;
     window.electronAPI.setSetting('language', lang);
     setEditorLanguage(lang);
-    updateLangBadge(lang);
+    applyEditorLanguageToUI(lang);
     updateTitle();
-    document.getElementById('sb-lang').textContent = { java: 'Java', cpp: 'C++', python: 'Python' }[lang] || lang;
   });
 
   // Template buttons
@@ -1748,7 +1764,98 @@ function formatExecutionDiagnosticOutput({ phase, rawText, fallbackText = '', in
   return `${lines.join('\n')}\n\n--- Raw Output ---\n${raw}`;
 }
 
+function ensureRunTimeEstimateStore() {
+  if (runTimeEstimateStore) return runTimeEstimateStore;
+  try {
+    const raw = localStorage.getItem(RUN_ESTIMATE_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (parsed && typeof parsed === 'object' && parsed.records && typeof parsed.records === 'object') {
+      runTimeEstimateStore = parsed;
+      return runTimeEstimateStore;
+    }
+  } catch (_) {}
+  runTimeEstimateStore = { records: {} };
+  return runTimeEstimateStore;
+}
+
+function persistRunTimeEstimateStore() {
+  try {
+    const store = ensureRunTimeEstimateStore();
+    localStorage.setItem(RUN_ESTIMATE_STORAGE_KEY, JSON.stringify(store));
+  } catch (_) {}
+}
+
+function getRunEstimateKeys(language) {
+  const lang = String(language || settings.language || 'java').toLowerCase();
+  const keys = [];
+  if (currentFilePath) {
+    keys.push(`file:${lang}:${normalizeDocPath(currentFilePath)}`);
+  }
+  keys.push(`lang:${lang}`);
+  return keys;
+}
+
+function updateEstimateRecord(record, ms) {
+  const value = Math.max(1, Math.round(Number(ms || 0)));
+  const next = record && typeof record === 'object' ? record : {};
+  const points = Array.isArray(next.points) ? next.points.slice(-RUN_ESTIMATE_MAX_POINTS + 1) : [];
+  points.push(value);
+  const alpha = 0.35;
+  const ema = Number.isFinite(next.ema) ? (next.ema * (1 - alpha) + value * alpha) : value;
+  return {
+    points,
+    ema,
+    last: value,
+    count: Number(next.count || 0) + 1,
+    updatedAt: Date.now(),
+  };
+}
+
+function recordExecutionEstimate(language, ms, meta = {}) {
+  const numeric = Number(ms);
+  if (!Number.isFinite(numeric) || numeric <= 0) return;
+  if (meta.timedOut || meta.compileError) return;
+
+  const store = ensureRunTimeEstimateStore();
+  getRunEstimateKeys(language).forEach((key) => {
+    store.records[key] = updateEstimateRecord(store.records[key], numeric);
+  });
+  persistRunTimeEstimateStore();
+}
+
+function getEstimatedRunTimeMs(language) {
+  const store = ensureRunTimeEstimateStore();
+  const keys = getRunEstimateKeys(language);
+  for (const key of keys) {
+    const record = store.records[key];
+    if (!record) continue;
+    const pointCount = Array.isArray(record.points) ? record.points.length : 0;
+    const ema = Number(record.ema);
+    if (Number.isFinite(ema) && pointCount > 0) {
+      return Math.max(1, Math.round(ema));
+    }
+  }
+  return null;
+}
+
+function renderEstimatedRunTimeMetric(language = settings.language || 'java') {
+  const estEl = document.getElementById('run-estimate-time');
+  if (!estEl) return;
+  const estimateMs = getEstimatedRunTimeMs(language);
+  if (!estimateMs) {
+    estEl.textContent = '';
+    estEl.classList.add('hidden');
+    estEl.title = 'Estimated execution time based on recent runs/tests (compile excluded)';
+    return;
+  }
+
+  estEl.textContent = `Est ${estimateMs}ms`;
+  estEl.title = 'Estimated execution time based on recent runs/tests (compile excluded)';
+  estEl.classList.remove('hidden');
+}
+
 function resetRunMetrics() {
+  renderEstimatedRunTimeMetric(settings.language || 'java');
   const execEl = document.getElementById('run-time');
   const compileEl = document.getElementById('run-compile-time');
   const cacheEl = document.getElementById('run-cache-hit');
@@ -1846,6 +1953,11 @@ async function executeAndShow(code, language, input) {
     }
 
     renderRunMetrics(result);
+    recordExecutionEstimate(language, result.execTimeMs ?? result.timeMs, {
+      timedOut: !!result.timedOut,
+      compileError: !!result.compileError,
+    });
+    renderEstimatedRunTimeMetric(language);
 
     if (result.usaco?.enabled) {
       const usacoMeta = [];
@@ -1863,6 +1975,7 @@ async function executeAndShow(code, language, input) {
       rawText: err?.stack || err?.message || String(err),
       fallbackText: 'Unexpected application error during execution.',
     });
+    renderEstimatedRunTimeMetric(language);
   } finally {
     document.getElementById('btn-run').disabled = false;
     document.getElementById('btn-stop').disabled = true;
@@ -2242,6 +2355,7 @@ function updateTestCaseResult(tc, result) {
 async function runAllTests() {
   if (testCases.length === 0) { switchTab('tests'); return; }
   switchTab('tests');
+  renderEstimatedRunTimeMetric(settings.language || 'java');
 
   // Mark all as running
   testCases.forEach(tc => {
@@ -2273,6 +2387,15 @@ async function runAllTests() {
   results.forEach((result, i) => {
     if (testCases[i]) updateTestCaseResult(testCases[i], result);
   });
+
+  const estimateSamples = results
+    .filter((r) => !r.compileError && !r.timedOut && Number.isFinite(Number(r.timeMs)) && Number(r.timeMs) > 0)
+    .map((r) => Number(r.timeMs));
+  if (estimateSamples.length) {
+    const avgMs = estimateSamples.reduce((sum, value) => sum + value, 0) / estimateSamples.length;
+    recordExecutionEstimate(language, avgMs, { source: 'tests' });
+    renderEstimatedRunTimeMetric(language);
+  }
 
   // Show summary in status
     const passed = results.filter(r => r.passed).length;
@@ -2440,7 +2563,13 @@ async function openCppToolchainHelper(context = {}) {
   overlay.classList.remove('hidden');
 
   const installBtn = document.getElementById('btn-cpp-helper-install-mac');
-  if (installBtn) installBtn.style.display = process.platform === 'darwin' ? '' : 'none';
+  if (installBtn) {
+    installBtn.style.display = '';
+    installBtn.textContent = process.platform === 'darwin'
+      ? 'Open Setup Installer (Apple tools)'
+      : 'Open Setup Installer';
+    installBtn.title = 'Open Setup Environment and run the unified installer flow';
+  }
 
   const isBitsError = isBitsStdCppHeaderMissingError(cppHelperContext?.rawText || '');
   if (isBitsError) {
@@ -2573,24 +2702,17 @@ async function applyCppCompilerSelection(spec) {
 }
 
 async function installMacCppToolsFromHelper() {
-  if (process.platform !== 'darwin') {
-    setCppHelperStatus('Apple C++ tools installer is only available on macOS.', 'warn');
-    return;
+  setCppHelperStatus('Opening Setup Environment installer flow…', 'ok');
+  showSetupModal();
+  const setupLangSelect = document.getElementById('setup-lang-select');
+  if (setupLangSelect) {
+    setupLangSelect.value = 'cpp';
   }
-  setCppHelperStatus('Requesting Apple Command Line Tools installer…');
-  try {
-    const result = await window.electronAPI.installMacCppTools();
-    if (result?.ok) {
-      const msg = result.alreadyInstalled
-        ? (result.message || 'Xcode Command Line Tools are already installed.')
-        : (result.message || 'Installer dialog opened.');
-      setCppHelperStatus(msg, result.alreadyInstalled ? 'ok' : 'ok');
-    } else {
-      setCppHelperStatus(result?.error || 'Failed to start installer. Try `xcode-select --install` in Terminal.', 'error');
-    }
-  } catch (err) {
-    setCppHelperStatus(`Failed to start installer: ${err?.message || err}`, 'error');
-  }
+  await window.updateSetupLang();
+  appendSetupInstallLog('Opened from C++ Toolchain Helper. Using unified installer flow.', 'info');
+  setSetupInstallStatusLine('Installer launched from C++ Toolchain Helper.', 'running');
+  closeCppToolchainHelper();
+  await runSetupLanguageInstall('cpp');
 }
 
 function openCppToolchainInstallGuide() {
