@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openTerminal: (targetPath) => ipcRenderer.invoke('shell:open-terminal', targetPath),
   installMacCppTools: () => ipcRenderer.invoke('toolchain:install-xcode-clt'),
   installLanguageBundle: (opts) => ipcRenderer.invoke('toolchain:install-bundle', opts),
+  getInstallGuideUrl: (language) => ipcRenderer.invoke('toolchain:get-install-guide-url', language),
 
   // Code execution
   runCode: (opts) => ipcRenderer.invoke('run:code', opts),

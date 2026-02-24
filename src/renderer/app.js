@@ -791,29 +791,24 @@ window.updateSetupLang = async function() {
   }
 };
 
-window.openSetupInstallGuide = function(language) {
-  const urls = {
-    darwin: {
-      java: 'https://adoptium.net/',
-      cpp: 'https://developer.apple.com/xcode/resources/',
-      python: 'https://www.python.org/downloads/macos/',
-    },
-    win32: {
-      java: 'https://adoptium.net/',
-      cpp: 'https://code.visualstudio.com/docs/cpp/config-mingw',
-      python: 'https://www.python.org/downloads/windows/',
-    },
-    linux: {
-      java: 'https://adoptium.net/',
-      cpp: 'https://gcc.gnu.org/install/',
-      python: 'https://www.python.org/downloads/source/',
-    },
-  };
-  const platformKey = process.platform === 'darwin' ? 'darwin' : process.platform === 'win32' ? 'win32' : 'linux';
-  const url = urls[platformKey]?.[String(language || '').toLowerCase()];
-  if (url) {
-    void window.electronAPI.openExternal(url);
-    appendSetupInstallLog(`Opened install guide for ${language}: ${url}`, 'info');
+window.openSetupInstallGuide = async function(language) {
+  const lang = String(language || '').toLowerCase();
+  if (!lang) return;
+  if (!window.electronAPI?.getInstallGuideUrl) {
+    appendSetupInstallLog('Install guide API is unavailable in this build.', 'warn');
+    return;
+  }
+
+  try {
+    const url = await window.electronAPI.getInstallGuideUrl(lang);
+    if (!url) {
+      appendSetupInstallLog(`No install guide available for ${lang.toUpperCase()} on ${process.platform}.`, 'warn');
+      return;
+    }
+    await window.electronAPI.openExternal(url);
+    appendSetupInstallLog(`Opened install guide for ${lang}: ${url}`, 'info');
+  } catch (err) {
+    appendSetupInstallLog(`Failed to open install guide: ${err?.message || err}`, 'error');
   }
 };
 
@@ -838,17 +833,18 @@ async function runSetupLanguageInstall(language) {
   setSetupInstallStatusLine(`Starting ${lang.toUpperCase()} installer...`, 'running');
   appendSetupInstallLog(`Starting installer for ${lang}.`, 'info');
 
+  let installResult;
   try {
-    const result = await window.electronAPI.installLanguageBundle({ language: lang });
-    if (!result?.ok) {
-      appendSetupInstallLog(result?.error || `Failed to start installer for ${lang}.`, 'error');
-      setSetupInstallStatusLine(result?.error || `Failed to start ${lang} installer.`, 'error');
+    installResult = await window.electronAPI.installLanguageBundle({ language: lang });
+    if (!installResult?.ok) {
+      appendSetupInstallLog(installResult?.error || `Failed to start installer for ${lang}.`, 'error');
+      setSetupInstallStatusLine(installResult?.error || `Failed to start ${lang} installer.`, 'error');
       setSetupInstallButtonsBusy(lang, false);
       renderSetupBundleCards();
       return;
     }
 
-    if (result.openedExternal) {
+    if (installResult.openedExternal) {
       appendSetupInstallLog(`Opened installer page for ${lang}. Complete installation there, then click Rescan.`, 'info');
       setSetupInstallStatusLine(`Opened external installer page for ${lang}.`, 'ok');
       setSetupInstallButtonsBusy(lang, false);
@@ -860,6 +856,11 @@ async function runSetupLanguageInstall(language) {
     setSetupInstallStatusLine(`Failed to start installer: ${err?.message || err}`, 'error');
     setSetupInstallButtonsBusy(lang, false);
     renderSetupBundleCards();
+  } finally {
+    if (setupInstallBusyLang === lang) {
+      setSetupInstallButtonsBusy(lang, false);
+      renderSetupBundleCards();
+    }
   }
 }
 
@@ -2594,14 +2595,7 @@ async function installMacCppToolsFromHelper() {
 }
 
 function openCppToolchainInstallGuide() {
-  const urls = {
-    darwin: 'https://developer.apple.com/xcode/resources/',
-    win32: 'https://code.visualstudio.com/docs/cpp/config-mingw',
-    linux: 'https://gcc.gnu.org/install/',
-  };
-  const key = process.platform === 'darwin' ? 'darwin' : process.platform === 'win32' ? 'win32' : 'linux';
-  const url = urls[key];
-  if (url) window.electronAPI.openExternal(url);
+  void window.openSetupInstallGuide('cpp');
 }
 
 // ─── Theme ────────────────────────────────────────────────────────────────────

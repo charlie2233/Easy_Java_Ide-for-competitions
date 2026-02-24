@@ -555,6 +555,10 @@ ipcMain.handle('toolchain:install-bundle', async (_e, opts = {}) => {
   return startToolchainInstall(opts.language);
 });
 
+ipcMain.handle('toolchain:get-install-guide-url', async (_e, language) => {
+  return getInstallGuideUrl(language);
+});
+
 ipcMain.handle('shell:open-path', (_e, p) => shell.openPath(p));
 ipcMain.handle('shell:open-external', (_e, url) => shell.openExternal(url));
 
