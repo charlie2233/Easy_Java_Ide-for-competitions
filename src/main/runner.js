@@ -328,6 +328,7 @@ function execWithInputCommand(commandInfo, args, input, timeLimitMs, cwd) {
     proc.on('close', (code) => {
       clearTimeout(timer);
       currentProcess = null;
+      const elapsedMs = Date.now() - startTime;
 
       if (spawnError && spawnError.code === 'ENOENT') {
         stderr = `Command not found: ${commandInfo.command}`;
@@ -340,7 +341,8 @@ function execWithInputCommand(commandInfo, args, input, timeLimitMs, cwd) {
         stderr,
         exitCode: code ?? (timedOut ? -1 : 1),
         timedOut,
-        timeMs: Date.now() - startTime,
+        timeMs: elapsedMs,
+        execTimeMs: elapsedMs,
       });
     });
   });

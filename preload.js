@@ -22,9 +22,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Environment
   getEnvInfo: () => ipcRenderer.invoke('env:info'),
   getAssetUrl: (relativePath) => ipcRenderer.invoke('app:get-asset-url', relativePath),
+  copyText: (text) => ipcRenderer.invoke('clipboard:write-text', text),
   openPath: (p) => ipcRenderer.invoke('shell:open-path', p),
   openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
   openTerminal: (targetPath) => ipcRenderer.invoke('shell:open-terminal', targetPath),
+  installMacCppTools: () => ipcRenderer.invoke('toolchain:install-xcode-clt'),
+  installLanguageBundle: (opts) => ipcRenderer.invoke('toolchain:install-bundle', opts),
 
   // Code execution
   runCode: (opts) => ipcRenderer.invoke('run:code', opts),
@@ -63,5 +66,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onFileSaveAs: (callback) => {
     ipcRenderer.on('file:save-as', (_e, data) => callback(data));
     return () => ipcRenderer.removeListener('file:save-as', callback);
+  },
+  onToolchainInstallEvent: (callback) => {
+    const handler = (_e, data) => callback(data);
+    ipcRenderer.on('toolchain:install-event', handler);
+    return () => ipcRenderer.removeListener('toolchain:install-event', handler);
   },
 });

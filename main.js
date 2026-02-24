@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu, shell, clipboard } = require('electron');
 const { execFile, spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -53,6 +53,250 @@ async function getStore() {
 }
 
 let mainWindow;
+const activeToolchainInstalls = new Map();
+
+function emitToolchainInstallEvent(payload) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send('toolchain:install-event', {
+    ts: Date.now(),
+    ...payload,
+  });
+}
+
+function getInstallGuideUrl(language) {
+  const lang = String(language || '').toLowerCase();
+  const perPlatform = {
+    darwin: {
+      java: 'https://adoptium.net/',
+      cpp: 'https://developer.apple.com/xcode/resources/',
+      python: 'https://www.python.org/downloads/macos/',
+    },
+    win32: {
+      java: 'https://adoptium.net/',
+      cpp: 'https://code.visualstudio.com/docs/cpp/config-mingw',
+      python: 'https://www.python.org/downloads/windows/',
+    },
+    linux: {
+      java: 'https://adoptium.net/',
+      cpp: 'https://gcc.gnu.org/install/',
+      python: 'https://www.python.org/downloads/source/',
+    },
+  };
+  const platformKey = process.platform === 'darwin'
+    ? 'darwin'
+    : process.platform === 'win32'
+    ? 'win32'
+    : 'linux';
+  return perPlatform[platformKey]?.[lang] || null;
+}
+
+function commandExists(command) {
+  const whichCmd = process.platform === 'win32' ? 'where' : 'which';
+  return new Promise((resolve) => {
+    execFile(whichCmd, [command], (err) => resolve(!err));
+  });
+}
+
+function runStreamingToolchainInstall({ language, command, args = [], cwd = process.cwd(), shell: useShell = false }) {
+  const lang = String(language || '').toLowerCase();
+  if (!lang) return Promise.resolve({ ok: false, error: 'Missing language.' });
+  if (activeToolchainInstalls.has(lang)) {
+    return Promise.resolve({ ok: false, error: `An install is already running for ${lang}.` });
+  }
+
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(command, args, { cwd, shell: useShell, stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (err) {
+      resolve({ ok: false, error: err.message || String(err) });
+      return;
+    }
+
+    activeToolchainInstalls.set(lang, child);
+    emitToolchainInstallEvent({
+      language: lang,
+      phase: 'start',
+      command: [command, ...args].join(' '),
+      message: `Started installer: ${command}`,
+    });
+
+    child.stdout.on('data', (buf) => {
+      emitToolchainInstallEvent({
+        language: lang,
+        phase: 'stdout',
+        text: buf.toString(),
+      });
+    });
+
+    child.stderr.on('data', (buf) => {
+      emitToolchainInstallEvent({
+        language: lang,
+        phase: 'stderr',
+        text: buf.toString(),
+      });
+    });
+
+    child.on('error', (err) => {
+      activeToolchainInstalls.delete(lang);
+      emitToolchainInstallEvent({
+        language: lang,
+        phase: 'error',
+        message: err.message || String(err),
+      });
+      resolve({ ok: false, error: err.message || String(err) });
+    });
+
+    child.on('close', (code) => {
+      activeToolchainInstalls.delete(lang);
+      emitToolchainInstallEvent({
+        language: lang,
+        phase: 'exit',
+        code: Number(code ?? 1),
+        ok: Number(code ?? 1) === 0,
+        message: Number(code ?? 1) === 0 ? 'Installer finished.' : `Installer exited with code ${code ?? 1}.`,
+      });
+      resolve({
+        ok: Number(code ?? 1) === 0,
+        code: Number(code ?? 1),
+      });
+    });
+  });
+}
+
+async function startToolchainInstall(language) {
+  const lang = String(language || '').toLowerCase();
+  if (!['java', 'cpp', 'python'].includes(lang)) {
+    return { ok: false, error: `Unsupported language: ${language}` };
+  }
+
+  if (process.platform === 'darwin') {
+    if (lang === 'cpp') {
+      emitToolchainInstallEvent({
+        language: lang,
+        phase: 'start',
+        command: 'xcode-select --install',
+        message: 'Requesting Apple Command Line Tools installer dialog…',
+      });
+
+      const result = await new Promise((resolve) => {
+        execFile('xcode-select', ['--install'], (err, stdout, stderr) => {
+          const out = String(stdout || stderr || '').trim();
+          const lower = `${out}\n${err?.message || ''}`.toLowerCase();
+          if (lower.includes('already installed')) {
+            resolve({ ok: true, alreadyInstalled: true, message: out || 'Xcode Command Line Tools are already installed.' });
+            return;
+          }
+          if (err) {
+            resolve({ ok: false, error: out || err.message || 'Failed to start installer.' });
+            return;
+          }
+          resolve({ ok: true, message: out || 'Apple installer dialog requested.' });
+        });
+      });
+
+      emitToolchainInstallEvent({
+        language: lang,
+        phase: result.ok ? 'info' : 'error',
+        message: result.message || result.error || '',
+      });
+      emitToolchainInstallEvent({
+        language: lang,
+        phase: 'exit',
+        code: result.ok ? 0 : 1,
+        ok: !!result.ok,
+        message: result.ok ? (result.message || 'Installer requested.') : (result.error || 'Installer failed to start.'),
+      });
+      return result;
+    }
+
+    const hasBrew = await commandExists('brew');
+    if (hasBrew) {
+      const brewPkg = lang === 'java' ? 'openjdk' : 'python';
+      return runStreamingToolchainInstall({
+        language: lang,
+        command: 'brew',
+        args: ['install', brewPkg],
+      });
+    }
+
+    const url = getInstallGuideUrl(lang);
+    if (url) {
+      await shell.openExternal(url);
+      emitToolchainInstallEvent({
+        language: lang,
+        phase: 'info',
+        message: `Homebrew was not found. Opened download page: ${url}`,
+      });
+      emitToolchainInstallEvent({
+        language: lang,
+        phase: 'exit',
+        code: 0,
+        ok: true,
+        message: 'External installer page opened.',
+      });
+      return { ok: true, openedExternal: true, url };
+    }
+    return { ok: false, error: 'No install method available for this platform.' };
+  }
+
+  if (process.platform === 'win32') {
+    const hasWinget = await commandExists('winget');
+    if (hasWinget) {
+      const wingetId = {
+        java: 'EclipseAdoptium.Temurin.17.JDK',
+        cpp: 'LLVM.LLVM',
+        python: 'Python.Python.3.12',
+      }[lang];
+      if (wingetId) {
+        return runStreamingToolchainInstall({
+          language: lang,
+          command: 'winget',
+          args: ['install', '--id', wingetId, '-e'],
+        });
+      }
+    }
+
+    const url = getInstallGuideUrl(lang);
+    if (url) {
+      await shell.openExternal(url);
+      emitToolchainInstallEvent({
+        language: lang,
+        phase: 'info',
+        message: `winget was not available. Opened install guide: ${url}`,
+      });
+      emitToolchainInstallEvent({
+        language: lang,
+        phase: 'exit',
+        code: 0,
+        ok: true,
+        message: 'External installer guide opened.',
+      });
+      return { ok: true, openedExternal: true, url };
+    }
+    return { ok: false, error: 'No install method available for this platform.' };
+  }
+
+  const url = getInstallGuideUrl(lang);
+  if (url) {
+    await shell.openExternal(url);
+    emitToolchainInstallEvent({
+      language: lang,
+      phase: 'info',
+      message: `Opened install guide: ${url}`,
+    });
+    emitToolchainInstallEvent({
+      language: lang,
+      phase: 'exit',
+      code: 0,
+      ok: true,
+      message: 'External installer guide opened.',
+    });
+    return { ok: true, openedExternal: true, url };
+  }
+
+  return { ok: false, error: 'No install method available for this platform.' };
+}
 
 async function createWindow() {
   const s = await getStore();
@@ -289,6 +533,26 @@ ipcMain.handle('app:get-asset-url', (_e, relativePath) => {
   } catch (_) {
     return null;
   }
+});
+
+ipcMain.handle('clipboard:write-text', (_e, text) => {
+  try {
+    clipboard.writeText(String(text ?? ''));
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('toolchain:install-xcode-clt', async () => {
+  if (process.platform !== 'darwin') {
+    return { ok: false, error: 'Xcode Command Line Tools installer is only available on macOS.' };
+  }
+  return startToolchainInstall('cpp');
+});
+
+ipcMain.handle('toolchain:install-bundle', async (_e, opts = {}) => {
+  return startToolchainInstall(opts.language);
 });
 
 ipcMain.handle('shell:open-path', (_e, p) => shell.openPath(p));
