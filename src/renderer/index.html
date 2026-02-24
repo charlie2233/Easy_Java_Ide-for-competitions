@@ -195,6 +195,7 @@
               <button id="btn-welcome-new" class="welcome-btn">New File (⌘N)</button>
               <button id="btn-welcome-open" class="welcome-btn">Open File (⌘O)</button>
               <button id="btn-welcome-folder" class="welcome-btn">Open Project Folder</button>
+              <button id="btn-welcome-setup" class="welcome-btn welcome-btn-accent">Setup Environment</button>
             </div>
             <div class="welcome-keys">
               <div class="key-row"><span class="key">⌘</span> + <span class="key">Enter</span> <span>Run Code</span></div>
@@ -222,11 +223,15 @@
           <div id="tab-output" class="io-tab-content active">
             <div id="output-toolbar">
               <span id="run-status" class="status-idle">Ready</span>
-              <span id="run-time"></span>
+              <div id="run-metrics">
+                <span id="run-time" class="metric-chip hidden" title="Execution time only (compile excluded)"></span>
+                <span id="run-compile-time" class="metric-chip hidden"></span>
+                <span id="run-cache-hit" class="metric-chip hidden">Compile cache</span>
+              </div>
               <button class="tool-btn" id="btn-clear-output" title="Clear output">Clear</button>
               <button class="tool-btn" id="btn-copy-output" title="Copy output">Copy</button>
             </div>
-            <pre id="output-area"></pre>
+            <pre id="output-area" tabindex="0"></pre>
           </div>
 
           <!-- Input tab -->
@@ -277,35 +282,85 @@
     <div class="setup-modal">
       <div class="setup-header">
         <h1>Welcome to CompIDE</h1>
-        <p>Let's get your environment set up for competitive programming.</p>
+        <p>Set up your offline toolchains, theme, and competition defaults in one place.</p>
       </div>
       <div class="setup-body">
-        <div class="setup-step">
-          <h3>Choose your theme</h3>
-          <div class="theme-options">
-            <div class="theme-card selected" data-theme="dark" onclick="selectSetupTheme('dark')">
-              <div class="theme-preview" style="background: #0d1117"></div>
-              <span>Dark Modern</span>
+        <div class="setup-grid">
+          <div class="setup-step">
+            <h3>Choose your theme</h3>
+            <div class="theme-options">
+              <div class="theme-card selected" data-theme="dark" onclick="selectSetupTheme('dark')">
+                <div class="theme-preview" style="background: linear-gradient(135deg, #0d1117, #1a2434)"></div>
+                <span>Dark Modern</span>
+              </div>
+              <div class="theme-card" data-theme="light" onclick="selectSetupTheme('light')">
+                <div class="theme-preview" style="background: linear-gradient(135deg, #ffffff, #edf3fb); border: 1px solid #e1e4e8;"></div>
+                <span>Light Crisp</span>
+              </div>
             </div>
-            <div class="theme-card" data-theme="light" onclick="selectSetupTheme('light')">
-              <div class="theme-preview" style="background: #ffffff; border: 1px solid #e1e4e8;"></div>
-              <span>Light Crisp</span>
+          </div>
+
+          <div class="setup-step">
+            <h3>Preferred Language</h3>
+            <select id="setup-lang-select" onchange="updateSetupLang()">
+              <option value="java">Java (JDK 17+)</option>
+              <option value="cpp">C++ (G++/Clang)</option>
+              <option value="python">Python 3</option>
+            </select>
+            <div id="setup-lang-status" class="setup-inline-status">Checking…</div>
+            <div class="setup-quick-actions">
+              <button type="button" class="tool-btn" onclick="refreshSetupEnvironment()">Rescan</button>
+              <button type="button" class="tool-btn" onclick="setupAutoInstallMissing()">Auto Install Missing</button>
+              <button type="button" class="tool-btn" onclick="chooseProjectFolderFromSetup()">Choose Project Folder</button>
             </div>
           </div>
         </div>
+
         <div class="setup-step">
-          <h3>Preferred Language</h3>
-          <select id="setup-lang-select" onchange="updateSetupLang()">
-            <option value="java">Java (JDK 17+)</option>
-            <option value="cpp">C++ (G++/Clang)</option>
-            <option value="python">Python 3</option>
-          </select>
-          <div id="setup-lang-status" style="margin-top: 8px; font-size: 12px; color: var(--text-secondary);">
-            Checking...
+          <div class="setup-step-head">
+            <h3>Language Bundles</h3>
+            <div id="setup-install-statusline" class="setup-install-statusline">Ready to scan and install.</div>
           </div>
+          <div class="setup-bundle-grid">
+            <div class="setup-bundle-card" data-language="java">
+              <div class="setup-bundle-main">
+                <div class="setup-bundle-name">Java</div>
+                <div class="setup-bundle-status" id="setup-bundle-java-status">Checking…</div>
+                <div class="setup-bundle-meta" id="setup-bundle-java-meta"></div>
+              </div>
+              <div class="setup-bundle-actions">
+                <button type="button" class="tool-btn" id="btn-setup-install-java" onclick="setupInstallLanguage('java')">Install</button>
+                <button type="button" class="tool-btn" onclick="openSetupInstallGuide('java')">Guide</button>
+              </div>
+            </div>
+            <div class="setup-bundle-card" data-language="cpp">
+              <div class="setup-bundle-main">
+                <div class="setup-bundle-name">C++</div>
+                <div class="setup-bundle-status" id="setup-bundle-cpp-status">Checking…</div>
+                <div class="setup-bundle-meta" id="setup-bundle-cpp-meta"></div>
+              </div>
+              <div class="setup-bundle-actions">
+                <button type="button" class="tool-btn" id="btn-setup-install-cpp" onclick="setupInstallLanguage('cpp')">Install</button>
+                <button type="button" class="tool-btn" onclick="openSetupInstallGuide('cpp')">Guide</button>
+              </div>
+            </div>
+            <div class="setup-bundle-card" data-language="python">
+              <div class="setup-bundle-main">
+                <div class="setup-bundle-name">Python</div>
+                <div class="setup-bundle-status" id="setup-bundle-python-status">Checking…</div>
+                <div class="setup-bundle-meta" id="setup-bundle-python-meta"></div>
+              </div>
+              <div class="setup-bundle-actions">
+                <button type="button" class="tool-btn" id="btn-setup-install-python" onclick="setupInstallLanguage('python')">Install</button>
+                <button type="button" class="tool-btn" onclick="openSetupInstallGuide('python')">Guide</button>
+              </div>
+            </div>
+          </div>
+          <pre id="setup-install-log" class="setup-install-log" aria-live="polite">Installer logs will appear here.</pre>
         </div>
       </div>
       <div class="setup-footer">
+        <button type="button" class="modal-close-btn" onclick="hideSetupModal()">Skip for now</button>
         <button class="setup-btn-next" onclick="finishSetup()">Get Started →</button>
       </div>
     </div>
@@ -396,6 +451,32 @@
       <div class="modal-footer">
         <button id="btn-settings-save" class="btn-primary">Save Settings</button>
         <button id="btn-settings-cancel" class="modal-close-btn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="cpp-helper-overlay" class="modal-overlay hidden">
+    <div class="modal-content cpp-helper-modal">
+      <div class="modal-header">
+        <h2>C++ Toolchain Helper</h2>
+        <button class="modal-close-btn" id="btn-cpp-helper-close">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="cpp-helper-summary" class="cpp-helper-summary">
+          We can scan detected compilers and help you choose one.
+        </div>
+        <div id="cpp-helper-status" class="cpp-helper-status hidden"></div>
+        <div class="cpp-helper-actions-row">
+          <button id="btn-cpp-helper-rescan" class="tool-btn">Rescan</button>
+          <button id="btn-cpp-helper-set-auto" class="tool-btn">Use Auto</button>
+          <button id="btn-cpp-helper-open-settings" class="tool-btn">Open Settings</button>
+          <button id="btn-cpp-helper-install-mac" class="tool-btn">Install Apple C++ Tools</button>
+          <button id="btn-cpp-helper-open-guide" class="tool-btn">Install Guide</button>
+        </div>
+        <div id="cpp-helper-detected-list" class="cpp-helper-list"></div>
+        <div class="cpp-helper-note">
+          Tip: On macOS, <code>&lt;bits/stdc++.h&gt;</code> is GCC-only. Apple <code>clang++</code> often requires standard headers like <code>&lt;iostream&gt;</code> or using Homebrew <code>g++</code>.
+        </div>
       </div>
     </div>
   </div>

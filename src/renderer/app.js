@@ -422,6 +422,10 @@ let autoSaveInFlight = false;
 let openEditorDocs = [];
 let currentDocId = null;
 let nextUntitledDocId = 1;
+let outputCopyResetTimer = null;
+let cppHelperContext = null;
+let setupInstallBusyLang = null;
+let setupInstallLogLines = [];
 
 const AUTO_SAVE_INTERVAL_MS = 4000;
 
@@ -606,48 +610,333 @@ window.require(['vs/editor/editor.main'], async function () {
   loadCustomInputFromStorage();
   loadTestCasesFromStorage();
   initSubmissionPanel();
-  updateBundleStatus();
+  await updateBundleStatus();
   refreshGitStatus();
   refreshProjectTree();
   loadRecentFiles();
-  // Always start on the in-editor welcome page instead of the setup popup.
+  if (settings.setupComplete !== true) {
+    showSetupModal();
+  }
 });
 }
 
 // ─── Setup / Onboarding ───────────────────────────────────────────────────────
 function showSetupModal() {
-  document.getElementById('setup-overlay').classList.remove('hidden');
-  updateSetupLang(); // Trigger check for default lang
+  const overlay = document.getElementById('setup-overlay');
+  if (!overlay) return;
+
+  const langSelect = document.getElementById('setup-lang-select');
+  if (langSelect) langSelect.value = settings.language || 'java';
+
+  const selectedTheme = settings.theme || 'dark';
+  document.querySelectorAll('.theme-card').forEach((c) => c.classList.remove('selected'));
+  const selectedCard = document.querySelector(`.theme-card[data-theme="${selectedTheme}"]`);
+  if (selectedCard) selectedCard.classList.add('selected');
+
+  overlay.classList.remove('hidden');
+  renderSetupBundleCards();
+  void refreshSetupEnvironment();
 }
 
+function hideSetupModal() {
+  const overlay = document.getElementById('setup-overlay');
+  if (overlay) overlay.classList.add('hidden');
+}
+window.hideSetupModal = hideSetupModal;
+
 window.selectSetupTheme = function(theme) {
-  document.querySelectorAll('.theme-card').forEach(c => c.classList.remove('selected'));
-  document.querySelector(`.theme-card[data-theme="${theme}"]`).classList.add('selected');
+  document.querySelectorAll('.theme-card').forEach((c) => c.classList.remove('selected'));
+  const card = document.querySelector(`.theme-card[data-theme="${theme}"]`);
+  if (card) card.classList.add('selected');
   applyTheme(theme); // Live preview
 };
 
+function setSetupInstallStatusLine(message, tone = '') {
+  const el = document.getElementById('setup-install-statusline');
+  if (!el) return;
+  el.textContent = message || '';
+  el.classList.remove('ok', 'warn', 'error', 'running');
+  if (tone) el.classList.add(tone);
+}
+
+function appendSetupInstallLog(text, tone = '') {
+  const el = document.getElementById('setup-install-log');
+  if (!el) return;
+  const lines = String(text || '')
+    .replace(/\r/g, '')
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length > 0);
+  if (!lines.length) return;
+
+  if (setupInstallLogLines.length === 0 && /Installer logs will appear here\./i.test(el.textContent || '')) {
+    el.textContent = '';
+  }
+
+  const prefix = tone ? `[${tone.toUpperCase()}] ` : '';
+  lines.forEach((line) => setupInstallLogLines.push(`${prefix}${line}`));
+  setupInstallLogLines = setupInstallLogLines.slice(-160);
+  el.textContent = setupInstallLogLines.join('\n');
+  el.scrollTop = el.scrollHeight;
+}
+
+function setSetupInstallButtonsBusy(language, busy) {
+  const lang = String(language || '').toLowerCase();
+  setupInstallBusyLang = busy ? lang : (setupInstallBusyLang === lang ? null : setupInstallBusyLang);
+  ['java', 'cpp', 'python'].forEach((itemLang) => {
+    const btn = document.getElementById(`btn-setup-install-${itemLang}`);
+    if (!btn) return;
+    const isActive = busy && itemLang === lang;
+    btn.disabled = !!busy && itemLang !== lang ? true : isActive;
+    if (isActive) {
+      btn.dataset.originalText = btn.dataset.originalText || btn.textContent;
+      btn.textContent = 'Installing...';
+    } else if (!busy && btn.dataset.originalText) {
+      btn.textContent = btn.dataset.originalText;
+    }
+  });
+}
+
+function renderSetupBundleCards() {
+  const bundles = bundlesState || {};
+  ['java', 'cpp', 'python'].forEach((lang) => {
+    const card = document.querySelector(`.setup-bundle-card[data-language="${lang}"]`);
+    const statusEl = document.getElementById(`setup-bundle-${lang}-status`);
+    const metaEl = document.getElementById(`setup-bundle-${lang}-meta`);
+    const installBtn = document.getElementById(`btn-setup-install-${lang}`);
+    if (!card || !statusEl || !metaEl) return;
+
+    const bundle = bundles[lang];
+    card.classList.remove('ready', 'missing', 'installing');
+    statusEl.classList.remove('ok', 'warn', 'error');
+
+    if (setupInstallBusyLang === lang) {
+      card.classList.add('installing');
+    }
+
+    if (!bundle) {
+      statusEl.textContent = 'Checking...';
+      metaEl.textContent = 'Bundle scan not completed yet.';
+      if (installBtn) installBtn.disabled = !!setupInstallBusyLang && setupInstallBusyLang !== lang;
+      return;
+    }
+
+    if (bundle.available) {
+      card.classList.add('ready');
+      statusEl.classList.add('ok');
+      statusEl.textContent = bundle.version || 'Ready';
+      const resolved = lang === 'java'
+        ? `${basenameSafe(bundle.runtime?.command)} + ${basenameSafe(bundle.compiler?.command)}`
+        : lang === 'cpp'
+        ? `${basenameSafe(bundle.compiler?.command)}${bundle.flavor ? ` (${bundle.flavor})` : ''}`
+        : basenameSafe(bundle.runtime?.command);
+      metaEl.textContent = resolved;
+      if (installBtn) {
+        installBtn.disabled = true;
+        installBtn.textContent = 'Installed';
+      }
+    } else {
+      card.classList.add('missing');
+      statusEl.classList.add('warn');
+      statusEl.textContent = 'Missing';
+      metaEl.textContent = bundle.installHint || 'No runtime/compiler detected.';
+      if (installBtn) {
+        installBtn.disabled = !!setupInstallBusyLang && setupInstallBusyLang !== lang;
+        if (setupInstallBusyLang !== lang) installBtn.textContent = 'Install';
+      }
+    }
+  });
+}
+
+async function refreshSetupEnvironment() {
+  setSetupInstallStatusLine('Scanning local toolchains...', 'running');
+  try {
+    await updateBundleStatus();
+    await window.updateSetupLang();
+    setSetupInstallStatusLine('Scan complete. Install missing languages or continue.', 'ok');
+  } catch (err) {
+    setSetupInstallStatusLine(`Scan failed: ${err?.message || err}`, 'error');
+  } finally {
+    renderSetupBundleCards();
+  }
+}
+window.refreshSetupEnvironment = function() {
+  void refreshSetupEnvironment();
+};
+
 window.updateSetupLang = async function() {
-  const lang = document.getElementById('setup-lang-select').value;
+  const selectEl = document.getElementById('setup-lang-select');
+  if (!selectEl) return;
+  const lang = selectEl.value;
   const statusEl = document.getElementById('setup-lang-status');
+  if (!statusEl) return;
+
   statusEl.textContent = 'Checking availability...';
-  statusEl.style.color = 'var(--text-secondary)';
-  
-  // Quick check
-  const bundles = await window.electronAPI.detectBundles();
-  const info = bundles[lang];
-  
+  statusEl.classList.remove('ok', 'warn');
+
+  if (!bundlesState || !bundlesState[lang]) {
+    try {
+      await updateBundleStatus();
+    } catch (_) {
+      // keep fallback text below
+    }
+  }
+  const info = bundlesState?.[lang];
   if (info && info.available) {
-    statusEl.textContent = `✓ Found: ${info.version || 'Ready'}`;
-    statusEl.style.color = 'var(--success)';
+    statusEl.textContent = `Ready: ${info.version || 'Detected locally'}`;
+    statusEl.classList.add('ok');
   } else {
-    statusEl.textContent = `✗ Not found. You can install it later.`;
-    statusEl.style.color = 'var(--warning)';
+    statusEl.textContent = `Missing. Use Install to start setup (${process.platform === 'darwin' ? 'Apple installer / Homebrew / download page' : 'winget / download guide'}).`;
+    statusEl.classList.add('warn');
   }
 };
 
+window.openSetupInstallGuide = function(language) {
+  const urls = {
+    darwin: {
+      java: 'https://adoptium.net/',
+      cpp: 'https://developer.apple.com/xcode/resources/',
+      python: 'https://www.python.org/downloads/macos/',
+    },
+    win32: {
+      java: 'https://adoptium.net/',
+      cpp: 'https://code.visualstudio.com/docs/cpp/config-mingw',
+      python: 'https://www.python.org/downloads/windows/',
+    },
+    linux: {
+      java: 'https://adoptium.net/',
+      cpp: 'https://gcc.gnu.org/install/',
+      python: 'https://www.python.org/downloads/source/',
+    },
+  };
+  const platformKey = process.platform === 'darwin' ? 'darwin' : process.platform === 'win32' ? 'win32' : 'linux';
+  const url = urls[platformKey]?.[String(language || '').toLowerCase()];
+  if (url) {
+    void window.electronAPI.openExternal(url);
+    appendSetupInstallLog(`Opened install guide for ${language}: ${url}`, 'info');
+  }
+};
+
+window.chooseProjectFolderFromSetup = async function() {
+  await chooseProjectFolder();
+  setSetupInstallStatusLine(workspaceRoot ? `Workspace set: ${basenameSafe(workspaceRoot)}` : 'No workspace selected.');
+};
+
+async function runSetupLanguageInstall(language) {
+  const lang = String(language || '').toLowerCase();
+  if (!['java', 'cpp', 'python'].includes(lang)) return;
+  if (setupInstallBusyLang) {
+    setSetupInstallStatusLine(`Installer already running for ${setupInstallBusyLang}.`, 'warn');
+    return;
+  }
+  if (!window.electronAPI?.installLanguageBundle) {
+    setSetupInstallStatusLine('Installer API is unavailable in this build.', 'error');
+    return;
+  }
+
+  setSetupInstallButtonsBusy(lang, true);
+  setSetupInstallStatusLine(`Starting ${lang.toUpperCase()} installer...`, 'running');
+  appendSetupInstallLog(`Starting installer for ${lang}.`, 'info');
+
+  try {
+    const result = await window.electronAPI.installLanguageBundle({ language: lang });
+    if (!result?.ok) {
+      appendSetupInstallLog(result?.error || `Failed to start installer for ${lang}.`, 'error');
+      setSetupInstallStatusLine(result?.error || `Failed to start ${lang} installer.`, 'error');
+      setSetupInstallButtonsBusy(lang, false);
+      renderSetupBundleCards();
+      return;
+    }
+
+    if (result.openedExternal) {
+      appendSetupInstallLog(`Opened installer page for ${lang}. Complete installation there, then click Rescan.`, 'info');
+      setSetupInstallStatusLine(`Opened external installer page for ${lang}.`, 'ok');
+      setSetupInstallButtonsBusy(lang, false);
+      await refreshSetupEnvironment();
+    }
+    // For streaming installers, completion is handled by toolchain install events.
+  } catch (err) {
+    appendSetupInstallLog(err?.message || String(err), 'error');
+    setSetupInstallStatusLine(`Failed to start installer: ${err?.message || err}`, 'error');
+    setSetupInstallButtonsBusy(lang, false);
+    renderSetupBundleCards();
+  }
+}
+
+window.setupInstallLanguage = function(language) {
+  void runSetupLanguageInstall(language);
+};
+
+window.setupAutoInstallMissing = async function() {
+  const order = ['java', 'cpp', 'python'];
+  if (!bundlesState) await refreshSetupEnvironment();
+  const missing = order.filter((lang) => !bundlesState?.[lang]?.available);
+  if (!missing.length) {
+    setSetupInstallStatusLine('All language bundles are already available.', 'ok');
+    appendSetupInstallLog('Auto install skipped: all bundles are already installed.', 'info');
+    return;
+  }
+
+  appendSetupInstallLog(`Auto install requested for: ${missing.join(', ')}`, 'info');
+  for (const lang of missing) {
+    await runSetupLanguageInstall(lang);
+    // Wait until streaming install finishes if one is active.
+    while (setupInstallBusyLang === lang) {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+  }
+};
+
+function handleToolchainInstallEvent(event = {}) {
+  const lang = String(event.language || '').toLowerCase();
+  if (!lang) return;
+
+  if (event.phase === 'start') {
+    setSetupInstallButtonsBusy(lang, true);
+    setSetupInstallStatusLine(`Installing ${lang.toUpperCase()}...`, 'running');
+    if (event.command) appendSetupInstallLog(`[${lang}] ${event.command}`, 'info');
+    if (event.message) appendSetupInstallLog(`[${lang}] ${event.message}`, 'info');
+    renderSetupBundleCards();
+    return;
+  }
+
+  if (event.phase === 'stdout' || event.phase === 'stderr') {
+    appendSetupInstallLog(`[${lang}] ${event.text || ''}`, event.phase === 'stderr' ? 'warn' : '');
+    return;
+  }
+
+  if (event.phase === 'info') {
+    appendSetupInstallLog(`[${lang}] ${event.message || ''}`, 'info');
+    if (event.message) setSetupInstallStatusLine(event.message, 'ok');
+    return;
+  }
+
+  if (event.phase === 'error') {
+    appendSetupInstallLog(`[${lang}] ${event.message || ''}`, 'error');
+    setSetupInstallStatusLine(event.message || `Installer failed for ${lang}.`, 'error');
+    setSetupInstallButtonsBusy(lang, false);
+    renderSetupBundleCards();
+    return;
+  }
+
+  if (event.phase === 'exit') {
+    appendSetupInstallLog(`[${lang}] ${event.message || (event.ok ? 'Installer completed.' : 'Installer exited with errors.')}`, event.ok ? 'info' : 'error');
+    setSetupInstallStatusLine(
+      event.ok
+        ? `${lang.toUpperCase()} install process finished. Rescanning bundles...`
+        : `${lang.toUpperCase()} installer exited with code ${event.code ?? 'unknown'}.`,
+      event.ok ? 'ok' : 'error',
+    );
+    setSetupInstallButtonsBusy(lang, false);
+    renderSetupBundleCards();
+    void refreshSetupEnvironment();
+  }
+}
+
 window.finishSetup = async function() {
-  const theme = document.querySelector('.theme-card.selected').dataset.theme;
-  const lang = document.getElementById('setup-lang-select').value;
+  const selectedThemeCard = document.querySelector('.theme-card.selected');
+  const theme = selectedThemeCard?.dataset.theme || settings.theme || 'dark';
+  const lang = document.getElementById('setup-lang-select')?.value || settings.language || 'java';
   
   settings.theme = theme;
   settings.language = lang;
@@ -657,11 +946,19 @@ window.finishSetup = async function() {
   await window.electronAPI.setSetting('language', lang);
   await window.electronAPI.setSetting('setupComplete', true);
   
-  document.getElementById('setup-overlay').classList.add('hidden');
+  hideSetupModal();
   
   // Apply changes
   applyTheme(theme);
-  loadInitialContent();
+  applyEditorLanguageToUI(lang);
+  if (editor) setEditorLanguage(lang);
+  updateLangBadge(lang);
+  updateTitle();
+
+  const hasMeaningfulCode = !!editor && editor.getValue().trim().length > 0;
+  if (!hasMeaningfulCode && openEditorDocs.length <= 1) {
+    loadInitialContent();
+  }
 };
 
 // ─── Monaco Editor ────────────────────────────────────────────────────────────
@@ -845,6 +1142,7 @@ function wireUI() {
   bind('btn-welcome-new', 'click', newFile, true);
   bind('btn-welcome-open', 'click', openFile, true);
   bind('btn-welcome-folder', 'click', chooseProjectFolder, true);
+  bind('btn-welcome-setup', 'click', showSetupModal, true);
 
   // Language selector
   bind('lang-select', 'change', (e) => {
@@ -886,12 +1184,25 @@ function wireUI() {
   bind('btn-clear-output', 'click', () => {
     document.getElementById('output-area').textContent = '';
     setStatus('idle', 'Ready');
-    document.getElementById('run-time').textContent = '';
+    resetRunMetrics();
   });
   bind('btn-copy-output', 'click', () => {
-    const text = document.getElementById('output-area').textContent;
-    navigator.clipboard.writeText(text);
+    void copyOutputAreaText();
   });
+  bind('output-area', 'keydown', (e) => {
+    const isCmd = e.metaKey || e.ctrlKey;
+    if (!isCmd) return;
+    const key = String(e.key || '').toLowerCase();
+    if (key === 'a') {
+      e.preventDefault();
+      selectAllOutputText();
+      return;
+    }
+    if (key === 'c' && !window.getSelection()?.toString()) {
+      e.preventDefault();
+      void copyOutputAreaText();
+    }
+  }, true);
 
   // Input toolbar
   bind('btn-clear-input', 'click', () => {
@@ -950,6 +1261,23 @@ function wireUI() {
     });
   }
 
+  // C++ helper modal
+  bind('btn-cpp-helper-close', 'click', closeCppToolchainHelper, true);
+  bind('btn-cpp-helper-rescan', 'click', () => { void refreshCppToolchainHelper(); }, true);
+  bind('btn-cpp-helper-set-auto', 'click', () => { void applyCppCompilerSelection(''); }, true);
+  bind('btn-cpp-helper-open-settings', 'click', () => {
+    closeCppToolchainHelper();
+    openSettings();
+  }, true);
+  bind('btn-cpp-helper-install-mac', 'click', () => { void installMacCppToolsFromHelper(); }, true);
+  bind('btn-cpp-helper-open-guide', 'click', openCppToolchainInstallGuide, true);
+  const cppHelperOverlay = document.getElementById('cpp-helper-overlay');
+  if (cppHelperOverlay) {
+    cppHelperOverlay.addEventListener('click', (e) => {
+      if (e.target === cppHelperOverlay) closeCppToolchainHelper();
+    });
+  }
+
   // Menu events from main process
   window.electronAPI.onMenuEvent('run', () => runCode());
   window.electronAPI.onMenuEvent('run-input', () => { switchTab('input'); runCodeWithInput(); });
@@ -975,6 +1303,10 @@ function wireUI() {
   window.electronAPI.onFileSaveAs(({ filePath }) => {
     writeCurrentFile(filePath);
   });
+
+  if (typeof window.electronAPI.onToolchainInstallEvent === 'function') {
+    window.electronAPI.onToolchainInstallEvent(handleToolchainInstallEvent);
+  }
 
   // Resizable split
   setupResizer();
@@ -1364,6 +1696,8 @@ function extractLikelyErrorLocation(rawText = '') {
 function explainErrorCause(rawText = '', phase = 'error') {
   const text = String(rawText || '');
   const ruleSets = [
+    [/\bbits\/stdc\+\+\.h\b.*file not found/i, 'macOS Apple clang++ does not ship the GCC-only <bits/stdc++.h> header. Use standard headers (like <iostream>) or switch to a g++ compiler in the C++ Toolchain Helper.'],
+    [/fatal error: ['"]iostream['"] file not found/i, 'C++ headers are unavailable. On macOS, install Xcode Command Line Tools (`xcode-select --install`).'],
     [/cannot find symbol/i, 'Unknown variable/class/method name, or a missing import/definition.'],
     [/\b(incompatible types|cannot be converted to)\b/i, 'A value type does not match the variable/parameter return type.'],
     [/';' expected/i, 'A semicolon is likely missing near the reported line.'],
@@ -1414,10 +1748,57 @@ function formatExecutionDiagnosticOutput({ phase, rawText, fallbackText = '', in
   return `${lines.join('\n')}\n\n--- Raw Output ---\n${raw}`;
 }
 
+function resetRunMetrics() {
+  const execEl = document.getElementById('run-time');
+  const compileEl = document.getElementById('run-compile-time');
+  const cacheEl = document.getElementById('run-cache-hit');
+
+  if (execEl) {
+    execEl.textContent = '';
+    execEl.classList.add('hidden');
+    execEl.title = 'Execution time only (compile excluded)';
+  }
+  if (compileEl) {
+    compileEl.textContent = '';
+    compileEl.classList.add('hidden');
+  }
+  if (cacheEl) {
+    cacheEl.classList.add('hidden');
+  }
+}
+
+function renderRunMetrics(result = {}) {
+  const execEl = document.getElementById('run-time');
+  const compileEl = document.getElementById('run-compile-time');
+  const cacheEl = document.getElementById('run-cache-hit');
+  const execMsRaw = Number(result.execTimeMs ?? result.timeMs ?? 0);
+  const compileMsRaw = Number(result.compileMs ?? 0);
+  const execMs = Number.isFinite(execMsRaw) ? Math.max(0, Math.round(execMsRaw)) : 0;
+  const compileMs = Number.isFinite(compileMsRaw) ? Math.max(0, Math.round(compileMsRaw)) : 0;
+
+  if (execEl) {
+    const shouldShowExec = execMs > 0 || (!result.compileError && result.exitCode === 0 && !result.timedOut);
+    execEl.textContent = shouldShowExec ? `Exec ${execMs}ms` : '';
+    execEl.title = 'Execution time only (compile excluded)';
+    execEl.classList.toggle('hidden', !shouldShowExec);
+  }
+
+  if (compileEl) {
+    const shouldShowCompile = compileMs > 0;
+    compileEl.textContent = shouldShowCompile ? `Compile ${compileMs}ms` : '';
+    compileEl.title = 'Compilation time (separate from execution time)';
+    compileEl.classList.toggle('hidden', !shouldShowCompile);
+  }
+
+  if (cacheEl) {
+    cacheEl.classList.toggle('hidden', !result.cacheHit);
+  }
+}
+
 async function executeAndShow(code, language, input) {
   setStatus('running', 'Running...');
   document.getElementById('output-area').textContent = '';
-  document.getElementById('run-time').textContent = '';
+  resetRunMetrics();
   document.getElementById('btn-run').disabled = true;
   document.getElementById('btn-stop').disabled = false;
 
@@ -1438,12 +1819,14 @@ async function executeAndShow(code, language, input) {
 
     if (result.compileError) {
       setStatus('error', 'Compile Error');
+      const compileRaw = result.stderr || result.stdout || '';
       output.textContent = formatExecutionDiagnosticOutput({
         phase: 'Compile Error',
-        rawText: result.stderr || result.stdout || '',
+        rawText: compileRaw,
         fallbackText: 'Compilation failed.',
       });
       output.style.color = 'var(--error)';
+      void maybeOpenCppToolchainHelperFromCompileError({ language, rawText: compileRaw });
     } else if (result.timedOut) {
       setStatus('tle', 'Time Limit Exceeded');
       output.textContent = (result.stdout || '') + '\n[TLE: Process killed]';
@@ -1462,11 +1845,7 @@ async function executeAndShow(code, language, input) {
       output.style.color = 'var(--text-primary)';
     }
 
-    const metrics = [];
-    if (result.timeMs) metrics.push(`${result.timeMs}ms`);
-    if (result.compileMs) metrics.push(`compile ${result.compileMs}ms`);
-    if (result.cacheHit) metrics.push('cache-hit');
-    document.getElementById('run-time').textContent = metrics.join(' • ');
+    renderRunMetrics(result);
 
     if (result.usaco?.enabled) {
       const usacoMeta = [];
@@ -2006,6 +2385,223 @@ async function updateBundleStatus() {
       }
     }
   }
+
+  renderSetupBundleCards();
+}
+
+function isBitsStdCppHeaderMissingError(rawText = '') {
+  return /\bbits\/stdc\+\+\.h\b.*file not found/i.test(String(rawText || ''));
+}
+
+function isCppToolchainMissingError(rawText = '') {
+  return /C\+\+\s+toolchain is not ready/i.test(String(rawText || ''));
+}
+
+async function maybeOpenCppToolchainHelperFromCompileError({ language, rawText }) {
+  if (language !== 'cpp') return;
+  const raw = String(rawText || '');
+  if (!isBitsStdCppHeaderMissingError(raw) && !isCppToolchainMissingError(raw)) return;
+  const reason = isBitsStdCppHeaderMissingError(raw) ? 'bits-header-missing' : 'toolchain-missing';
+  await openCppToolchainHelper({ reason, rawText: raw });
+}
+
+function closeCppToolchainHelper() {
+  const overlay = document.getElementById('cpp-helper-overlay');
+  if (overlay) overlay.classList.add('hidden');
+}
+
+function setCppHelperStatus(message = '', tone = '') {
+  const el = document.getElementById('cpp-helper-status');
+  if (!el) return;
+  if (!message) {
+    el.textContent = '';
+    el.className = 'cpp-helper-status hidden';
+    return;
+  }
+  el.textContent = message;
+  el.className = `cpp-helper-status ${tone}`.trim();
+}
+
+function setCppHelperSummary(message = '') {
+  const el = document.getElementById('cpp-helper-summary');
+  if (!el) return;
+  el.textContent = message || 'We can scan detected compilers and help you choose one.';
+}
+
+function formatCppCandidateCommand(candidate) {
+  if (!candidate) return '';
+  return [candidate.command, ...(candidate.args || [])].filter(Boolean).join(' ');
+}
+
+async function openCppToolchainHelper(context = {}) {
+  cppHelperContext = { ...context };
+  const overlay = document.getElementById('cpp-helper-overlay');
+  if (!overlay) return;
+  overlay.classList.remove('hidden');
+
+  const installBtn = document.getElementById('btn-cpp-helper-install-mac');
+  if (installBtn) installBtn.style.display = process.platform === 'darwin' ? '' : 'none';
+
+  const isBitsError = isBitsStdCppHeaderMissingError(cppHelperContext?.rawText || '');
+  if (isBitsError) {
+    setCppHelperSummary('<bits/stdc++.h> failed. On macOS, Apple clang++ usually does not include this GCC-only header. Choose a different compiler or use portable headers.');
+  } else if (isCppToolchainMissingError(cppHelperContext?.rawText || '')) {
+    setCppHelperSummary('C++ toolchain is not ready. Pick a detected compiler below or install one, then run again.');
+  } else {
+    setCppHelperSummary('Scan detected C++ compilers and choose which one CompIDE should use.');
+  }
+  setCppHelperStatus('Scanning C++ compilers…');
+  await refreshCppToolchainHelper();
+}
+
+async function refreshCppToolchainHelper() {
+  const listEl = document.getElementById('cpp-helper-detected-list');
+  if (!listEl) return;
+  listEl.innerHTML = '';
+  setCppHelperStatus('Scanning C++ compilers…');
+
+  let bundles;
+  try {
+    bundles = await window.electronAPI.detectBundles({
+      javaPath: settings.javaPath || '',
+      javacPath: settings.javacPath || '',
+      cppCompiler: settings.cppCompiler || '',
+      pythonPath: settings.pythonPath || '',
+      autoPickBestBundle: settings.autoPickBestBundle !== false,
+    });
+  } catch (err) {
+    setCppHelperStatus(`Scan failed: ${err?.message || err}`, 'error');
+    return;
+  }
+
+  bundlesState = bundles;
+  const cpp = bundles?.cpp || {};
+  const candidates = Array.isArray(cpp.candidates) ? cpp.candidates : [];
+  const selectedPath = cpp.compiler?.resolvedPath || null;
+  const isBitsError = isBitsStdCppHeaderMissingError(cppHelperContext?.rawText || '');
+
+  if (!candidates.length) {
+    const empty = document.createElement('div');
+    empty.className = 'cpp-helper-card';
+    empty.innerHTML = `
+      <div class="cpp-helper-card-main">
+        <div class="cpp-helper-card-title">No C++ compiler detected</div>
+        <div class="cpp-helper-card-meta">${escHtml(cpp.installHint || 'Install clang++ or g++ and rescan.')}</div>
+      </div>
+    `;
+    listEl.appendChild(empty);
+    setCppHelperStatus(cpp.installHint || 'No compiler found. Install one and click Rescan.', 'warn');
+    return;
+  }
+
+  candidates.forEach((candidate) => {
+    const card = document.createElement('div');
+    const candidateSelected = !!candidate.selected || (!!selectedPath && candidate.resolvedPath === selectedPath);
+    card.className = `cpp-helper-card${candidateSelected ? ' selected' : ''}`;
+
+    const main = document.createElement('div');
+    main.className = 'cpp-helper-card-main';
+
+    const title = document.createElement('div');
+    title.className = 'cpp-helper-card-title';
+    title.innerHTML = `<code>${escHtml(formatCppCandidateCommand(candidate))}</code>`;
+    main.appendChild(title);
+
+    const meta = document.createElement('div');
+    meta.className = 'cpp-helper-card-meta';
+    const metaParts = [
+      candidate.flavor ? `${candidate.flavor}` : 'compiler',
+      candidate.source || 'auto',
+      candidate.version || 'version unknown',
+    ];
+    if (isBitsError && process.platform === 'darwin' && candidate.flavor === 'clang') {
+      metaParts.push('may fail with <bits/stdc++.h>');
+    }
+    meta.textContent = metaParts.filter(Boolean).join(' • ');
+    main.appendChild(meta);
+
+    if (candidate.resolvedPath) {
+      const pathEl = document.createElement('div');
+      pathEl.className = 'cpp-helper-card-path';
+      pathEl.textContent = candidate.resolvedPath;
+      main.appendChild(pathEl);
+    }
+
+    const actions = document.createElement('div');
+    actions.className = 'cpp-helper-card-actions';
+    if (candidateSelected) {
+      const badge = document.createElement('span');
+      badge.className = 'cpp-helper-badge';
+      badge.textContent = 'Selected';
+      actions.appendChild(badge);
+    } else {
+      const useBtn = document.createElement('button');
+      useBtn.type = 'button';
+      useBtn.className = 'tool-btn';
+      useBtn.textContent = 'Use';
+      useBtn.title = `Use ${formatCppCandidateCommand(candidate)}`;
+      useBtn.addEventListener('click', () => {
+        void applyCppCompilerSelection(candidate.raw || candidate.resolvedPath || formatCppCandidateCommand(candidate));
+      });
+      actions.appendChild(useBtn);
+    }
+
+    card.appendChild(main);
+    card.appendChild(actions);
+    listEl.appendChild(card);
+  });
+
+  if (cpp.available) {
+    const selectedText = cpp.compiler
+      ? `${basenameSafe(cpp.compiler.command)}${cpp.flavor ? ` (${cpp.flavor})` : ''}`
+      : 'C++ compiler ready';
+    setCppHelperStatus(`Detected ${candidates.length} compiler${candidates.length === 1 ? '' : 's'}. Using ${selectedText}.`, 'ok');
+  } else {
+    setCppHelperStatus(cpp.installHint || 'Compiler not detected.', 'warn');
+  }
+}
+
+async function applyCppCompilerSelection(spec) {
+  const nextValue = String(spec || '').trim();
+  settings.cppCompiler = nextValue;
+  await window.electronAPI.setSetting('cppCompiler', nextValue);
+  const settingsInput = document.getElementById('setting-cpp-compiler');
+  if (settingsInput) settingsInput.value = nextValue;
+  setCppHelperStatus(nextValue ? `Selected compiler: ${nextValue}` : 'Switched to auto compiler detection. Rescanning…');
+  await updateBundleStatus();
+  await refreshCppToolchainHelper();
+}
+
+async function installMacCppToolsFromHelper() {
+  if (process.platform !== 'darwin') {
+    setCppHelperStatus('Apple C++ tools installer is only available on macOS.', 'warn');
+    return;
+  }
+  setCppHelperStatus('Requesting Apple Command Line Tools installer…');
+  try {
+    const result = await window.electronAPI.installMacCppTools();
+    if (result?.ok) {
+      const msg = result.alreadyInstalled
+        ? (result.message || 'Xcode Command Line Tools are already installed.')
+        : (result.message || 'Installer dialog opened.');
+      setCppHelperStatus(msg, result.alreadyInstalled ? 'ok' : 'ok');
+    } else {
+      setCppHelperStatus(result?.error || 'Failed to start installer. Try `xcode-select --install` in Terminal.', 'error');
+    }
+  } catch (err) {
+    setCppHelperStatus(`Failed to start installer: ${err?.message || err}`, 'error');
+  }
+}
+
+function openCppToolchainInstallGuide() {
+  const urls = {
+    darwin: 'https://developer.apple.com/xcode/resources/',
+    win32: 'https://code.visualstudio.com/docs/cpp/config-mingw',
+    linux: 'https://gcc.gnu.org/install/',
+  };
+  const key = process.platform === 'darwin' ? 'darwin' : process.platform === 'win32' ? 'win32' : 'linux';
+  const url = urls[key];
+  if (url) window.electronAPI.openExternal(url);
 }
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
@@ -2435,6 +3031,78 @@ function renderImportedExtensions() {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+function flashToolButtonLabel(buttonId, text, ms = 1200) {
+  const btn = document.getElementById(buttonId);
+  if (!btn) return;
+  const original = btn.dataset.originalLabel || btn.textContent;
+  if (!btn.dataset.originalLabel) btn.dataset.originalLabel = original;
+  btn.textContent = text;
+  if (outputCopyResetTimer) window.clearTimeout(outputCopyResetTimer);
+  outputCopyResetTimer = window.setTimeout(() => {
+    const currentBtn = document.getElementById(buttonId);
+    if (currentBtn) currentBtn.textContent = currentBtn.dataset.originalLabel || original;
+  }, ms);
+}
+
+function selectAllOutputText() {
+  const output = document.getElementById('output-area');
+  if (!output) return;
+  output.focus();
+  const range = document.createRange();
+  range.selectNodeContents(output);
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+}
+
+async function copyTextToClipboard(text) {
+  const value = String(text ?? '');
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return true;
+    } catch (_) {
+      // Fall through to Electron/native fallback.
+    }
+  }
+
+  if (window.electronAPI?.copyText) {
+    try {
+      const result = await window.electronAPI.copyText(value);
+      if (result?.ok) return true;
+    } catch (_) {
+      // Fall through.
+    }
+  }
+
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = value;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    ta.style.pointerEvents = 'none';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return !!ok;
+  } catch (_) {
+    return false;
+  }
+}
+
+async function copyOutputAreaText() {
+  const output = document.getElementById('output-area');
+  const text = output?.textContent || '';
+  if (!text) {
+    flashToolButtonLabel('btn-copy-output', 'Empty');
+    return;
+  }
+  const ok = await copyTextToClipboard(text);
+  flashToolButtonLabel('btn-copy-output', ok ? 'Copied' : 'Copy failed', ok ? 1000 : 1600);
+}
+
 function setStatus(type, text) {
   const el = document.getElementById('run-status');
   el.className = `status-${type}`;
