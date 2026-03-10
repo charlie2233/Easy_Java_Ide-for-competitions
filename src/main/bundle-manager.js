@@ -164,15 +164,39 @@ function cppFlavor(commandInfo) {
   return 'gcc';
 }
 
+function sameCommandInfo(a, b) {
+  if (!a || !b) return false;
+  return a.resolvedPath === b.resolvedPath && (a.args || []).join(' ') === (b.args || []).join(' ');
+}
+
 async function detectCpp(settings = {}) {
   const allowAuto = settings.autoPickBestBundle !== false;
   const manual = await resolveCommand(settings.cppCompiler || '', 'settings');
-  const autoCandidates = await Promise.all(defaultCppCandidates().map((cmd) => resolveCommand(cmd, 'auto')));
-  const auto = dedupeCommands(autoCandidates)[0] || null;
+  const autoCandidatesRaw = await Promise.all(defaultCppCandidates().map((cmd) => resolveCommand(cmd, 'auto')));
+  const autoCandidates = dedupeCommands(autoCandidatesRaw);
+  const auto = autoCandidates[0] || null;
   const compiler = manual || (allowAuto ? auto : null);
   const flavor = cppFlavor(compiler);
   const versionArgs = flavor === 'msvc' ? ['/?'] : ['--version'];
   const version = compiler ? await getVersion(compiler, versionArgs) : null;
+  const candidateInputs = dedupeCommands([
+    ...(manual ? [manual] : []),
+    ...autoCandidates,
+  ]);
+  const candidates = await Promise.all(candidateInputs.map(async (candidate) => {
+    const candidateFlavor = cppFlavor(candidate);
+    const candidateVersion = await getVersion(candidate, candidateFlavor === 'msvc' ? ['/?'] : ['--version']);
+    return {
+      command: candidate.command,
+      args: candidate.args || [],
+      raw: candidate.raw || candidate.command,
+      resolvedPath: candidate.resolvedPath,
+      source: candidate.source || 'auto',
+      flavor: candidateFlavor,
+      version: candidateVersion,
+      selected: sameCommandInfo(candidate, compiler),
+    };
+  }));
 
   return {
     available: !!compiler,
@@ -180,6 +204,7 @@ async function detectCpp(settings = {}) {
     compiler,
     flavor,
     version,
+    candidates,
     installHint: compiler ? null : installHint('cpp'),
   };
 }
